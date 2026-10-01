@@ -10,7 +10,6 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execFile } = require('child_process');
 
 const ROOT = __dirname;
 const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
@@ -490,21 +489,6 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/stop' && req.method === 'POST') {
     stopPlayback('manual');
     return json(res, { ok: true });
-  }
-
-  // Stops the whole server (systemd service). Only accepted from the Pi itself (the kiosk),
-  // never from the network: visitors' phones reach this same port.
-  if (url.pathname === '/api/server-stop' && req.method === 'POST') {
-    const ip = req.socket.remoteAddress;
-    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip)) {
-      res.writeHead(403); return res.end('Only allowed from the Pi itself');
-    }
-    log('⏻ Server stop requested from the kiosk');
-    json(res, { ok: true });
-    setTimeout(() => execFile('sudo', ['-n', 'systemctl', 'stop', 'suutoo'], (err) => {
-      if (err) log(`Server stop failed: ${err.message}`);
-    }), 300);
-    return;
   }
 
   // Screens compare this token on every sync and reload their page when it changes

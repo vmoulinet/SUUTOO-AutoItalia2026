@@ -1,0 +1,14 @@
+[Unit]
+Description=SUUTOO control helper (start/stop the server from the kiosk)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+User=__USER__
+WorkingDirectory=__DIR__
+ExecStart=/usr/bin/node deploy/control.js
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

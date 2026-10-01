@@ -23,6 +23,13 @@ printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl start suutoo, /usr/bin/system
 sudo chmod 440 /etc/sudoers.d/suutoo
 sudo visudo -cf /etc/sudoers.d/suutoo
 
+echo "==> Control helper (lets the admin page start/stop the server)"
+sed -e "s|__USER__|$APP_USER|g" -e "s|__DIR__|$APP_DIR|g" \
+  "$APP_DIR/deploy/suutoo-control.service" | sudo tee /etc/systemd/system/suutoo-control.service >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl enable suutoo-control
+sudo systemctl restart suutoo-control
+
 echo "==> Screen never sleeps"
 sudo raspi-config nonint do_blanking 1
 

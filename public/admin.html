@@ -48,6 +48,11 @@
   .pv { flex: none; height: 160px; aspect-ratio: 9 / 16; background: #000; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
   .pv video { width: 100%; height: 100%; object-fit: cover; display: block; }
   .pv.offline { opacity: .4; }
+  /* Server stopped: everything is greyed out except the server bar */
+  body.down > *:not(#serverBar):not(script) { opacity: .3; filter: grayscale(1); pointer-events: none; }
+  #serverBar { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+  #serverBar button { margin: 0; }
+  #serverBar button.start { background: #2a7; }
 </style>
 </head>
 <body>
@@ -58,8 +63,11 @@
   <button id="play" onclick="post('/api/restart')" style="display:none; background:#2a7">▶ Resume video</button>
   <button onclick="confirm('Restart the video from the beginning on all screens?') && post('/api/restart')">↺ Restart loop</button>
   <button onclick="confirm('Reload the page on all screens?') && post('/api/reload')">⟳ Reload screens</button>
-  <button id="serverStop" class="smoke" style="display:none" onclick="stopServer()">⏻ Stop server</button>
 </p>
+<div id="serverBar" style="display:none">
+  <button id="serverBtn" onclick="serverAction()"></button>
+  <span id="serverMsg" class="status"></span>
+</div>
 
 <nav id="tabs">
   <button data-tab="screens">Screens</button>
@@ -141,18 +149,47 @@ async function post(u, body) {
   catch (e) { alert(`The command failed (${e.message}). Is the server up to date? Restart it: Ctrl+C then node server.js`); }
 }
 
-// ---------- Stop server (only on the Pi's own screen, i.e. the kiosk) ----------
-if (['localhost', '127.0.0.1'].includes(location.hostname)) $('serverStop').style.display = '';
-async function stopServer() {
-  if (!confirm('Stop the whole server? All screens go black and the smoke stops.\n\nTo start it again: close this window (Alt+F4) and click "SUUTOO Admin" on the desktop.')) return;
-  try {
-    await api('/api/server-stop');
-    const o = document.createElement('div');
-    o.style.cssText = 'position:fixed;inset:0;background:#111;padding:16px;z-index:9';
-    o.innerHTML = '<h1>Server stopped</h1><p>To start it again, close this window (Alt+F4) and click <b>SUUTOO Admin</b> on the desktop.</p>';
-    document.body.appendChild(o);
-  } catch (e) { alert(`Could not stop the server (${e.message}).`); }
+// ---------- Start / stop the server (only on the Pi's own screen, i.e. the kiosk) ----------
+// The page stays loaded when the server is stopped; a tiny helper service on port 8081 can start it again.
+const isKiosk = ['localhost', '127.0.0.1'].includes(location.hostname);
+const CONTROL = 'http://localhost:8081';
+let serverDown = false, failCount = 0, startTimer;
+
+function renderServerBar() {
+  $('serverBar').style.display = isKiosk || serverDown ? '' : 'none';
+  const b = $('serverBtn');
+  b.style.display = isKiosk ? '' : 'none';
+  b.textContent = serverDown ? '▶ Start server' : '⏻ Stop server';
+  b.className = serverDown ? 'start' : 'smoke';
+  if (serverDown && !b.disabled) $('serverMsg').innerHTML = '<span class="bad">Server stopped</span>';
+  if (!serverDown) $('serverMsg').textContent = '';
 }
+function setDown(down) {
+  if (down === serverDown) return;
+  serverDown = down;
+  if (!down) { location.reload(); return; }   // server is back: reload the page fresh
+  document.body.classList.add('down');
+  renderServerBar();
+}
+async function serverAction() {
+  const act = serverDown ? 'start' : 'stop';
+  if (act === 'stop' && !confirm('Stop the whole server? All screens go black and the smoke stops.')) return;
+  const b = $('serverBtn');
+  b.disabled = true;
+  $('serverMsg').textContent = act === 'stop' ? 'Stopping…' : 'Starting…';
+  try {
+    const r = await fetch(`${CONTROL}/${act}`, { method: 'POST' });
+    if (!r.ok) throw new Error((await r.text()) || r.status);
+  } catch (e) {
+    alert(`Could not ${act} the server (${e.message}).`);
+    b.disabled = false; renderServerBar();
+    return;
+  }
+  if (act === 'stop') { b.disabled = false; setDown(true); return; }
+  // Started: the refresh loop notices the server is back and reloads the page. Give up after 60 s.
+  startTimer = setTimeout(() => { b.disabled = false; $('serverMsg').innerHTML = '<span class="bad">The server did not answer. Try again.</span>'; }, 60000);
+}
+renderServerBar();
 
 // ---------- Tabs ----------
 function showTab(name) {
@@ -419,6 +456,7 @@ async function refresh() {
   try {
     const a = performance.now();
     const s = await (await fetch('/api/status', { cache: 'no-store' })).json();
+    failCount = 0; setDown(false);
     updateClock(s, a, performance.now());
     $('next').textContent = s.stopped ? '⏹ STOPPED'
       : !s.smokeEnabled ? 'deactivated'
@@ -459,7 +497,10 @@ async function refresh() {
     videos = s.videos;
     if (changed) renderVideos();
     renderPhones(s.phones);
-  } catch { $('next').textContent = 'server unreachable'; }
+  } catch {
+    $('next').textContent = 'server unreachable';
+    if (++failCount >= 3) setDown(true);   // 3 failures in a row (~1.5 s): grey everything out
+  }
 }
 refresh();
 setInterval(refresh, 500);
