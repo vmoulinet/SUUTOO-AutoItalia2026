@@ -366,7 +366,7 @@ function renderPhones(list) {
       const drift = Math.abs(c.driftMs), age = c.ageMs / 1000;
       const dc = drift < 20 ? 'ok' : drift < 50 ? 'warn' : 'bad';
       return `${c.loaded ? '<span class="ok">video ✓</span>' : '<span class="warn">video…</span>'} ·
-        <span class="${c.sound ? 'ok' : 'bad'}">${c.sound ? 'sound yes' : 'sound NO – tap the screen'}</span> ·
+        <span class="${c.sound ? 'ok' : 'bad'}">${c.sound ? 'sound yes' : 'sound NO – tap the screen'}</span> <span class="dim">(vol: ${esc(c.vm || '?')})</span> ·
         <span class="${dc}">drift ${c.driftMs} ms</span> ·
         <span class="${c.rttMs == null ? 'dim' : c.rttMs < 50 ? 'ok' : c.rttMs < 150 ? 'warn' : 'bad'}">rtt ${c.rttMs == null ? '?' : c.rttMs + ' ms'}</span> ·
         <span class="${age < 8 ? 'ok' : 'bad'}">seen ${age.toFixed(0)} s ago</span>

@@ -344,6 +344,7 @@ const server = http.createServer(async (req, res) => {
         driftMs: Number(url.searchParams.get('drift')) || 0,
         loaded: url.searchParams.get('loaded') === '1',
         sound: url.searchParams.get('sound') === '1',
+        vm: (url.searchParams.get('vm') || '').slice(0, 20),   // how the volume is applied on the phone (element / gain / ctx-… / none)
         rttMs: url.searchParams.has('rtt') ? Number(url.searchParams.get('rtt')) : null,
       });
       if (isNew) { log(`Screen connected: ${id}`); online.set(id, true); updateDuration(); }

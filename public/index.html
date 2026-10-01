@@ -63,7 +63,7 @@ async function syncOnce() {
   const a = performance.now();
   const vid = loaded ? `&vn=${encodeURIComponent(videoInfo.name)}&vd=${Math.round(video.duration * 1000)}` : '';
   const extra = bestRtt() !== null ? `&rtt=${Math.round(bestRtt())}` : '';
-  const r = await fetch(`/api/time?id=${id}${vid}${extra}&drift=${Math.round(driftMs)}&loaded=${loaded ? 1 : 0}&sound=${allowed && !video.muted && (!audioCtx || audioCtx.state === 'running') ? 1 : 0}`, { cache: 'no-store' });
+  const r = await fetch(`/api/time?id=${id}${vid}${extra}&drift=${Math.round(driftMs)}&loaded=${loaded ? 1 : 0}&sound=${allowed && !video.muted && (volumeSettable || (audioReady && audioCtx.state === 'running')) ? 1 : 0}&vm=${volumeSettable ? 'element' : audioReady ? 'gain' : audioCtx ? 'ctx-' + audioCtx.state : 'none'}`, { cache: 'no-store' });
   const data = await r.json();
   const b = performance.now();
   const rtt = b - a;
@@ -88,8 +88,11 @@ async function syncOnce() {
 // ---------- Volume ----------
 // On iPhone, video.volume is read-only: go through Web Audio (GainNode),
 // which is only allowed to start after a tap.
-const volumeSettable = (() => { const a = new Audio(); a.volume = 0.5; return a.volume === 0.5; })();
+// Apple devices: never trust the probe, volume has no effect on a video element there.
+const isApple = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const volumeSettable = !isApple && (() => { const a = new Audio(); a.volume = 0.5; return a.volume === 0.5; })();
 let audioCtx = null, gainNode = null;
+let audioReady = false;     // iPhone: the video's sound goes through gainNode (the only way to change the volume)
 // The volume is ramped over ~150 ms: a sudden step makes the waveform jump, which pops.
 let volumeRamp = null;
 function applyVolume() {
@@ -102,19 +105,32 @@ function applyVolume() {
       video.volume = i >= steps ? volume : from + (volume - from) * (i / steps);
       if (i >= steps) { clearInterval(volumeRamp); volumeRamp = null; applyVolume(); }
     }, 15);
-  } else if (gainNode) gainNode.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.05);
+  } else if (audioReady) gainNode.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.05);
+}
+// The sound is only routed through Web Audio once the context is really running (after a tap):
+// before that the video keeps playing normally, instead of going silent behind a suspended context.
+function connectAudio() {
+  if (audioReady || !audioCtx || audioCtx.state !== 'running') return;
+  try {
+    gainNode.gain.value = volume;   // no sudden jump to full volume
+    audioCtx.createMediaElementSource(video).connect(gainNode);
+    audioReady = true;
+    applyVolume();
+  } catch {}
 }
 function setupAudio() {
   if (volumeSettable) return;
   try {
+    if (navigator.audioSession) navigator.audioSession.type = 'playback';   // iPhone: ignore the silent switch
     if (!audioCtx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       audioCtx = new AC();
       gainNode = audioCtx.createGain();
-      audioCtx.createMediaElementSource(video).connect(gainNode).connect(audioCtx.destination);
-      applyVolume();
+      gainNode.connect(audioCtx.destination);
+      audioCtx.addEventListener('statechange', connectAudio);
     }
-    if (audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
+    if (audioCtx.state !== 'running') audioCtx.resume().then(connectAudio, () => {});
+    connectAudio();
   } catch {}
 }
 
@@ -307,11 +323,14 @@ async function start() {
     document.addEventListener('click', () => start(), { once: true });
   }
   allowed = true;
+  setupAudio();   // may already work without a tap if the browser allows autoplay with sound
   control();
 }
 
 // Android / Chrome: a tap goes fullscreen (hides the URL bar).
 // No effect on iPhone, where "Add to Home Screen" is used instead.
+// iOS does not always deliver "click" on a bare page: touchend also counts as a tap for audio
+document.addEventListener('touchend', setupAudio, { passive: true });
 document.addEventListener('click', () => {
   setupAudio();
   const el = document.documentElement;
