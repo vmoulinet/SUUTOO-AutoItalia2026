@@ -17,6 +17,11 @@
   input, select { font: inherit; background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 6px 8px; }
   input[type=range] { padding: 0; width: 100%; accent-color: #4a9; }
   .card { background: #1a1a1a; border: 1px solid #2c2c2c; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .join { display: flex; align-items: center; gap: 12px; padding: 8px 12px; }
+  #qr { flex: none; width: 76px; height: 76px; border-radius: 4px; overflow: hidden; background: #fff; }
+  #qr svg { display: block; width: 100%; height: 100%; }
+  .join .status > div { margin: 2px 0; }
+  .join .url { font: 13px ui-monospace, monospace; color: #cde; word-break: break-all; user-select: all; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
   .row:last-child { margin-bottom: 0; }
   .row label { width: 62px; color: #999; }
@@ -80,6 +85,13 @@
 </nav>
 
 <section class="tab" data-tab="screens">
+<div class="card join" id="join" style="display:none">
+  <div id="qr" title="Scan with a phone to open the screen player"></div>
+  <div class="status">
+    <div><span class="dim">Admin </span><span id="urlAdmin" class="url"></span></div>
+    <div><span class="dim">Screens </span><span id="urlScreens" class="url"></span></div>
+  </div>
+</div>
 <div id="phones"><div class="dim">No screen connected</div></div>
 </section>
 
@@ -137,6 +149,7 @@
 </section>
 <input id="file" type="file" accept="video/mp4,video/quicktime,.mp4,.mov" style="display:none">
 
+<script src="/qrcode.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 let videos = [];
@@ -255,6 +268,27 @@ for (const el of [$('smokeMin'), $('smokeSec'), $('smokeDur')]) {
   el.addEventListener('input', () => { editedAt.smoke = Date.now(); clearTimeout(smokeTimer); smokeTimer = setTimeout(saveSmoke, 1000); });
   el.addEventListener('change', saveSmoke);
   el.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSmoke(); });
+}
+
+// ---------- Join card: QR code + addresses ----------
+// The server reports its current addresses with every status; the QR code is redrawn whenever they change.
+let joinKey = '';
+function qrSvg(text) {
+  const q = qrcode(0, 'M'); q.addData(text); q.make();
+  const n = q.getModuleCount(), m = 3, size = n + 2 * m;
+  let d = '';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c + m} ${r + m}h1v1h-1z`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
+function renderJoin(urls) {
+  const key = urls ? urls.screens + '|' + urls.admin : '';
+  if (key === joinKey) return;
+  joinKey = key;
+  $('join').style.display = urls ? '' : 'none';
+  if (!urls) return;
+  $('urlAdmin').textContent = urls.admin;
+  $('urlScreens').textContent = urls.screens;
+  $('qr').innerHTML = typeof qrcode === 'function' ? qrSvg(urls.screens) : '';
 }
 
 // ---------- Screens ----------
@@ -503,6 +537,7 @@ async function refresh() {
     const changed = JSON.stringify(s.videos) !== JSON.stringify(videos);
     videos = s.videos;
     if (changed) renderVideos();
+    renderJoin(s.urls);
     renderPhones(s.phones);
   } catch {
     $('next').textContent = 'server unreachable';

@@ -215,6 +215,20 @@ function updateDuration() {
   }
 }
 
+// Addresses of this machine, read again every few seconds so the QR code in the control panel
+// follows the network if the IP ever changes. Local network first, Tailscale last.
+let addrCache = { at: 0, urls: null };
+function accessUrls() {
+  if (Date.now() - addrCache.at < 3000) return addrCache.urls;
+  const rank = (ip) => (/^(192\.168|10\.|172\.(1[6-9]|2\d|3[01]))\./.test(ip) ? 0 : /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip) ? 2 : 1);
+  const ips = Object.values(os.networkInterfaces()).flat()
+    .filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => i.address)
+    .sort((a, b) => rank(a) - rank(b));
+  const urls = ips.length ? { admin: `http://${ips[0]}:${config.port}/admin`, screens: `http://${ips[0]}:${config.port}/` } : null;
+  addrCache = { at: Date.now(), urls };
+  return urls;
+}
+
 // One cycle = video (durationMs) + black screen (gapMs).
 // Smoke no. k (k >= 1) fires at t0 + (k-1)*cycle + smokeOffset: at the moment
 // chosen in the control panel.
@@ -352,7 +366,7 @@ const server = http.createServer(async (req, res) => {
     return json(res, {
       now, t0, durationMs, gapMs, smokeMode: smoke.mode, stopped, smokeCount, lastSmokeAt, nextSmokeInMs,
       smokeAtSec: state.smokeAtSec, smokeEnabled: state.smokeEnabled, smokeDurationSec: smokeDurationMs() / 1000,
-      smokeActive: Date.now() < smokeActiveUntil,
+      smokeActive: Date.now() < smokeActiveUntil, urls: accessUrls(),
       schedule: { ...state.schedule, ...scheduleInfo(), override: scheduleOverride }, machine, logs: logs.slice(-150), videos: listVideos(), phones,
     });
   }
@@ -517,6 +531,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/' || url.pathname === '/index.html') return sendFile(req, res, path.join(ROOT, 'public/index.html'));
   if (url.pathname === '/admin') return sendFile(req, res, path.join(ROOT, 'public/admin.html'));
   if (url.pathname === '/manifest.webmanifest') return sendFile(req, res, path.join(ROOT, 'public/manifest.webmanifest'));
+  if (url.pathname === '/qrcode.js') return sendFile(req, res, path.join(ROOT, 'public/qrcode.js'));   // QR code generator (MIT), used by the control panel
 
   res.writeHead(404);
   res.end('Not found');
