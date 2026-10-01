@@ -22,5 +22,5 @@ exec chromium --kiosk "$URL" \
   --noerrdialogs --disable-infobars --disable-session-crashed-bubble \
   --no-first-run --password-store=basic \
   --autoplay-policy=no-user-gesture-required \
-  --ozone-platform-hint=auto \
+  --ozone-platform=wayland \
   --check-for-update-interval=31536000
