@@ -281,6 +281,7 @@ const MIME = {
   '.mp4': 'video/mp4',
   '.mov': 'video/quicktime',
   '.webmanifest': 'application/manifest+json',
+  '.png': 'image/png',
 };
 
 function json(res, obj) {
@@ -544,6 +545,9 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/' || url.pathname === '/index.html') return sendFile(req, res, path.join(ROOT, 'public/index.html'));
   if (url.pathname === '/admin') return sendFile(req, res, path.join(ROOT, 'public/admin.html'));
   if (url.pathname === '/manifest.webmanifest') return sendFile(req, res, path.join(ROOT, 'public/manifest.webmanifest'));
+  if (url.pathname.startsWith('/icons/') && url.pathname.endsWith('.png')) {   // app icons (home screen / install)
+    return sendFile(req, res, path.join(ROOT, 'public/icons', path.basename(url.pathname)), true);
+  }
   if (url.pathname === '/qrcode.js') return sendFile(req, res, path.join(ROOT, 'public/qrcode.js'));   // QR code generator (MIT), used by the control panel
 
   res.writeHead(404);
