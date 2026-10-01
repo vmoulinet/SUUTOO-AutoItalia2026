@@ -54,10 +54,11 @@
 <h1>Expo control panel</h1>
 <p id="info" class="bad" style="margin:0 0 10px"></p>
 <p>
-  <button id="stop" class="smoke" onclick="confirm('Stop the video? All screens go black, no more smoke.') && post('/api/stop')">⏹ Stop (black screen)</button>
+  <button id="stop" class="smoke" onclick="confirm('Stop the video? All screens go black, no more smoke.') && post('/api/stop')">⏹ Stop loop</button>
   <button id="play" onclick="post('/api/restart')" style="display:none; background:#2a7">▶ Resume video</button>
   <button onclick="confirm('Restart the video from the beginning on all screens?') && post('/api/restart')">↺ Restart loop</button>
   <button onclick="confirm('Reload the page on all screens?') && post('/api/reload')">⟳ Reload screens</button>
+  <button id="serverStop" class="smoke" style="display:none" onclick="stopServer()">⏻ Stop server</button>
 </p>
 
 <nav id="tabs">
@@ -138,6 +139,19 @@ async function api(u, body) {
 async function post(u, body) {
   try { await api(u, body); refresh(); }
   catch (e) { alert(`The command failed (${e.message}). Is the server up to date? Restart it: Ctrl+C then node server.js`); }
+}
+
+// ---------- Stop server (only on the Pi's own screen, i.e. the kiosk) ----------
+if (['localhost', '127.0.0.1'].includes(location.hostname)) $('serverStop').style.display = '';
+async function stopServer() {
+  if (!confirm('Stop the whole server? All screens go black and the smoke stops.\n\nTo start it again: close this window (Alt+F4) and click "SUUTOO Admin" on the desktop.')) return;
+  try {
+    await api('/api/server-stop');
+    const o = document.createElement('div');
+    o.style.cssText = 'position:fixed;inset:0;background:#111;padding:16px;z-index:9';
+    o.innerHTML = '<h1>Server stopped</h1><p>To start it again, close this window (Alt+F4) and click <b>SUUTOO Admin</b> on the desktop.</p>';
+    document.body.appendChild(o);
+  } catch (e) { alert(`Could not stop the server (${e.message}).`); }
 }
 
 // ---------- Tabs ----------

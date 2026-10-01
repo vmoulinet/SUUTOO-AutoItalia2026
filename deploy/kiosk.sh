@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # Opens the SUUTOO admin interface fullscreen (kiosk mode) in Chromium.
 # Started at session login and by the "SUUTOO Admin" desktop icon.
+# If the server is stopped, it is started first.
 URL="${SUUTOO_URL:-http://localhost:8080/admin}"
 PROFILE="$HOME/.config/suutoo-kiosk"
+
+# Server stopped (e.g. with the "Stop server" button): start it
+if ! systemctl is-active --quiet suutoo; then
+  sudo -n systemctl start suutoo
+fi
 
 # Already open: do nothing (avoids duplicates when the icon is clicked)
 if pgrep -f -- "user-data-dir=$PROFILE" >/dev/null; then exit 0; fi

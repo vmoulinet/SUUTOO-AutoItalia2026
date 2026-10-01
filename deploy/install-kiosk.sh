@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sets up kiosk mode on the Pi (Raspberry Pi OS with desktop):
 #  - opens the admin interface fullscreen at boot
-#  - desktop icons: "SUUTOO Admin" (reopens the kiosk) and "SUUTOO Server" (start/stop)
+#  - desktop icon "SUUTOO Admin" (starts the server if stopped, reopens the kiosk)
 #  - screen never goes to sleep
 # Run FROM the Pi, as the normal user:  bash deploy/install-kiosk.sh
 set -euo pipefail
@@ -42,23 +42,15 @@ cat > "$DESKTOP_DIR/suutoo-admin.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=SUUTOO Admin
-Comment=Open the admin interface fullscreen
+Comment=Start the server if needed and open the admin interface fullscreen
 Exec=$APP_DIR/deploy/kiosk.sh
 Icon=video-display
 Terminal=false
 EOF
-cat > "$DESKTOP_DIR/suutoo-server.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=SUUTOO Server
-Comment=Start or stop the server
-Exec=$APP_DIR/deploy/server-toggle.sh
-Icon=system-run
-Terminal=false
-EOF
-chmod +x "$DESKTOP_DIR"/suutoo-*.desktop
+# Only one icon: the old "SUUTOO Server" toggle icon is gone
+rm -f "$DESKTOP_DIR/suutoo-server.desktop"
+chmod +x "$DESKTOP_DIR/suutoo-admin.desktop"
 gio set "$DESKTOP_DIR/suutoo-admin.desktop" metadata::trusted true 2>/dev/null || true
-gio set "$DESKTOP_DIR/suutoo-server.desktop" metadata::trusted true 2>/dev/null || true
 
 # No "Execute / Open?" question when clicking an icon
 mkdir -p "$HOME/.config/libfm"
