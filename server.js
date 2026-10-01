@@ -270,6 +270,14 @@ function restart() {
   loopsDone = 0;
   stopped = false;
   log('↺ Timeline restarted');
+  saveRuntime();
+}
+
+// The timeline (t0, cycle length) and the "reload screens" token are kept on disk, so that
+// restarting the server does not disturb the screens: they carry on from where they were.
+function saveRuntime(extra = {}) {
+  state.runtime = { t0, durationMs, reloadToken, ...extra };
+  saveState();
 }
 
 // ---------- HTTP ----------
@@ -524,6 +532,7 @@ const server = http.createServer(async (req, res) => {
   // Screens compare this token on every sync and reload their page when it changes
   if (url.pathname === '/api/reload' && req.method === 'POST') {
     reloadToken = Date.now();
+    saveRuntime();
     log('⟳ Reload requested for all screens');
     return json(res, { ok: true });
   }
@@ -602,6 +611,22 @@ for (const v of listVideos()) {
   if (d && d.version === v.version) durations.set(v.name, d.ms);
   else probeDuration(v);
 }
+
+// ---------- Continuity across a restart of the server ----------
+// While the server is down the phones keep playing on the last clock they received. If it comes back
+// with the same timeline, nothing changes on the screens: no black, no restart, no video download.
+const rt = state.runtime;
+if (rt && rt.t0) {
+  t0 = rt.t0;
+  if (!fixedDurationMs && rt.durationMs) durationMs = rt.durationMs;
+  if (rt.reloadToken) reloadToken = rt.reloadToken;   // a new token would make every screen reload its video
+  // After a clean stop (systemctl stop/restart) less than 10 min ago, also keep "stopped" / "resumed by hand"
+  if (rt.clean && Date.now() - rt.savedAt < 10 * 60 * 1000) { stopped = !!rt.stopped; scheduleOverride = !!rt.scheduleOverride; }
+  if (durationMs) loopsDone = Math.max(0, smokeLoopsNow());   // smoke moments already passed are not fired again
+  log(`Timeline restored from the previous run (${rt.clean ? 'clean stop' : 'no clean stop'})`);
+  state.runtime = { ...rt, clean: false };   // a crash must not be mistaken for a clean stop next time
+  saveState();
+}
 updateDuration();
 
 server.listen(config.port, '0.0.0.0', () => {
@@ -614,3 +639,17 @@ server.listen(config.port, '0.0.0.0', () => {
   }
   if (!listVideos().length) log('  ⚠ No video in video/: upload one from the control panel');
 });
+
+// Clean stop (systemctl stop / restart, Ctrl+C): cut the smoke, remember the state, then exit
+let shuttingDown = false;
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log('Server stopping');
+  cutSmoke();
+  state.runtime = { t0, durationMs, reloadToken, stopped, scheduleOverride, clean: true, savedAt: Date.now() };
+  try { fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2)); } catch {}
+  setTimeout(() => process.exit(0), 300);   // leaves time for the "smoke off" request to go out
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
