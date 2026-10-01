@@ -287,7 +287,7 @@ function renderJoin(urls, wifi) {
   joinKey = key;
   $('join').style.display = urls ? '' : 'none';
   if (!urls) return;
-  $('joinHint').innerHTML = 'flash the qrcode to add a new device connected to <b></b>';
+  $('joinHint').innerHTML = 'Connect a phone via WIFI to <b></b> and flash the QR code';
   $('joinHint').querySelector('b').textContent = wifi || 'the same network';
   $('urlAdmin').textContent = urls.admin;
   $('urlScreens').textContent = urls.screens;
