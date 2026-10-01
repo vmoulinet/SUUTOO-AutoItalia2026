@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Ouvre l'interface admin SUUTOO en plein écran (mode kiosque) dans Chromium.
-# Lancé au démarrage de la session et par l'icône « SUUTOO Admin » du bureau.
+# Opens the SUUTOO admin interface fullscreen (kiosk mode) in Chromium.
+# Started at session login and by the "SUUTOO Admin" desktop icon.
 URL="${SUUTOO_URL:-http://localhost:8080/admin}"
 PROFILE="$HOME/.config/suutoo-kiosk"
 
-# Déjà ouvert : ne rien faire (évite les doublons si on clique sur l'icône)
+# Already open: do nothing (avoids duplicates when the icon is clicked)
 if pgrep -f -- "user-data-dir=$PROFILE" >/dev/null; then exit 0; fi
 
-# Attendre que le serveur réponde (60 s max), puis ouvrir quand même
+# Wait for the server to answer (60 s max), then open anyway
 for _ in $(seq 60); do
   curl -fs -o /dev/null "$URL" && break
   sleep 1
 done
 
-# Évite le bandeau « Chromium ne s'est pas fermé correctement »
+# Avoids the "Chromium didn't shut down correctly" bar
 sed -i 's/"exited_cleanly":false/"exited_cleanly":true/; s/"exit_type":"Crashed"/"exit_type":"Normal"/' \
   "$PROFILE/Default/Preferences" "$PROFILE/Local State" 2>/dev/null || true
 
