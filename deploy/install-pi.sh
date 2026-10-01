@@ -43,6 +43,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable suutoo
 sudo systemctl restart suutoo
 
+echo "==> Watchdog matériel (redémarre le Pi s'il se fige)"
+sudo mkdir -p /etc/systemd/system.conf.d
+printf '[Manager]\nRuntimeWatchdogSec=15\nRebootWatchdogSec=2min\n' | sudo tee /etc/systemd/system.conf.d/watchdog.conf >/dev/null
+sudo systemctl daemon-reexec
+
 echo "==> SSH activé au démarrage"
 sudo systemctl enable --now ssh
 

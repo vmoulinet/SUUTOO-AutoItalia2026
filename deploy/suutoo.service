@@ -2,6 +2,8 @@
 Description=SUUTOO expo server
 After=network-online.target
 Wants=network-online.target
+# Ne jamais abandonner, même après des plantages en rafale
+StartLimitIntervalSec=0
 
 [Service]
 User=__USER__
