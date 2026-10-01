@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installe le serveur Sutuu sur un Raspberry Pi (Raspberry Pi OS / Debian).
+# Installe le serveur SUUTOO sur un Raspberry Pi (Raspberry Pi OS / Debian).
 # À lancer DEPUIS le Pi, dans le dossier du projet copié :
 #   bash deploy/install-pi.sh [--tailscale] [--claude]
 #
@@ -38,10 +38,10 @@ fi
 
 echo "==> Service systemd"
 sed -e "s|__USER__|$APP_USER|g" -e "s|__DIR__|$APP_DIR|g" \
-  "$APP_DIR/deploy/sutuu.service" | sudo tee /etc/systemd/system/sutuu.service >/dev/null
+  "$APP_DIR/deploy/suutoo.service" | sudo tee /etc/systemd/system/suutoo.service >/dev/null
 sudo systemctl daemon-reload
-sudo systemctl enable sutuu
-sudo systemctl restart sutuu
+sudo systemctl enable suutoo
+sudo systemctl restart suutoo
 
 echo "==> SSH activé au démarrage"
 sudo systemctl enable --now ssh
@@ -61,7 +61,7 @@ fi
 
 sleep 2
 echo
-systemctl --no-pager --lines=5 status sutuu || true
+systemctl --no-pager --lines=5 status suutoo || true
 echo
 echo "Terminé. Régie : http://$(hostname -I | awk '{print $1}'):8080/admin"
-echo "Logs en direct : journalctl -u sutuu -f"
+echo "Logs en direct : journalctl -u suutoo -f"
