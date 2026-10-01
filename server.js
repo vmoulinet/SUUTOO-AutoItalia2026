@@ -10,6 +10,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execFile } = require('child_process');
 
 const ROOT = __dirname;
 const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
@@ -229,6 +230,18 @@ function accessUrls() {
   return urls;
 }
 
+// Name of the Wi-Fi network this machine is on (NetworkManager, i.e. Raspberry Pi OS). null if unknown
+// or on a cable. Refreshed in the background at most every 10 s.
+let wifiName = null, wifiAt = 0;
+function refreshWifiName() {
+  if (Date.now() - wifiAt < 10000) return;
+  wifiAt = Date.now();
+  execFile('nmcli', ['-t', '-f', 'active,ssid', 'dev', 'wifi'], { timeout: 3000 }, (err, out) => {
+    const line = err ? null : String(out).split('\n').find((l) => l.startsWith('yes:'));
+    wifiName = line ? line.slice(4).replace(/\\(.)/g, '$1') || null : null;
+  });
+}
+
 // One cycle = video (durationMs) + black screen (gapMs).
 // Smoke no. k (k >= 1) fires at t0 + (k-1)*cycle + smokeOffset: at the moment
 // chosen in the control panel.
@@ -366,7 +379,7 @@ const server = http.createServer(async (req, res) => {
     return json(res, {
       now, t0, durationMs, gapMs, smokeMode: smoke.mode, stopped, smokeCount, lastSmokeAt, nextSmokeInMs,
       smokeAtSec: state.smokeAtSec, smokeEnabled: state.smokeEnabled, smokeDurationSec: smokeDurationMs() / 1000,
-      smokeActive: Date.now() < smokeActiveUntil, urls: accessUrls(),
+      smokeActive: Date.now() < smokeActiveUntil, urls: accessUrls(), wifi: (refreshWifiName(), wifiName),
       schedule: { ...state.schedule, ...scheduleInfo(), override: scheduleOverride }, machine, logs: logs.slice(-150), videos: listVideos(), phones,
     });
   }
