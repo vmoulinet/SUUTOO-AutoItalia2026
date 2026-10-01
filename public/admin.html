@@ -46,7 +46,10 @@
   .card.phone .ctl { flex: 1; min-width: 0; }
   button.wide { width: 150px; }
   .pv { flex: none; height: 160px; aspect-ratio: 9 / 16; background: #000; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
+  .pv { position: relative; }
   .pv video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pv .tc { position: absolute; top: 0; left: 0; right: 0; padding: 3px 0; text-align: center; z-index: 1; pointer-events: none;
+            font: 12px ui-monospace, monospace; font-variant-numeric: tabular-nums; color: #fff; background: rgba(0, 0, 0, .6); }
   .pv.offline { opacity: .4; }
   /* Server stopped: everything is greyed out except the server bar */
   body.down > *:not(#topbar):not(script), body.down #topbar > button:not(#serverBtn) { opacity: .3; filter: grayscale(1); pointer-events: none; }
@@ -263,7 +266,7 @@ function phoneCard(p) {
     <div class="row"><label>Video</label><select class="video"></select></div>
     <div class="row"><label>Volume</label><input class="volume" type="range" min="0" max="100"><span class="vol">100</span></div>
     <div class="status st"></div></div>
-    <div class="pv" title="Live preview (same point in the video as the phone)"><video muted playsinline preload="auto"></video></div>`;
+    <div class="pv" title="Live preview (same point in the video as the phone)"><video muted playsinline preload="auto"></video><div class="tc">--:--.-</div></div>`;
   el.querySelector('.pv video').muted = true;
   const key = (k) => p.id + k;
   const send = (body) => post('/api/phone', { id: p.id, ...body });
@@ -311,7 +314,7 @@ function renderPhones(list) {
       pvVideo.dataset.src = src;
       pvVideo.removeAttribute('src');
       pvVideo.load();
-      if (src) blobFor(src).then((u) => { if (u && pvVideo.dataset.src === src) pvVideo.src = u; });
+      if (src) pvVideo.src = src;
     }
     el.querySelector('.pv').classList.toggle('offline', !p.client);
 
@@ -366,31 +369,32 @@ $('file').addEventListener('change', () => {
 
 // ---------- Live previews ----------
 // Same logic as the phones: position = (server time - t0) modulo cycle.
-// Each video is downloaded once into memory (like on the phones) so previews never stall on the network.
-const blobs = new Map();   // video url -> Promise<object url>
-function blobFor(url) {
-  if (!blobs.has(url)) {
-    blobs.set(url, fetch(url).then((r) => r.blob()).then((b) => URL.createObjectURL(b)).catch(() => { blobs.delete(url); return null; }));
-  }
-  return blobs.get(url);
-}
-let clock = null;          // { samples, offset, t0, durationMs, gapMs, stopped }
+// The video is streamed straight from the server (range requests), nothing is downloaded up front.
+let clock = null;         // { samples, offset, t0, durationMs, gapMs, stopped }
 function updateClock(s, a, b) {
   const rtt = b - a;
   const samples = [...(clock ? clock.samples : []), { rtt, offset: s.now - (a + rtt / 2) }].slice(-10);
   const best = samples.reduce((x, y) => (y.rtt < x.rtt ? y : x));
   clock = { samples, offset: best.offset, t0: s.t0, durationMs: s.durationMs, gapMs: s.gapMs || 0, stopped: s.stopped };
 }
+const timecode = (s) => `${Math.floor(s / 60)}:${(Math.floor(s * 10) / 10 % 60).toFixed(1).padStart(4, '0')}`;
 function previewTick() {
-  if (!clock || !clock.durationMs) return;
+  const pvs = document.querySelectorAll('.pv');
+  if (!clock || !clock.durationMs) { pvs.forEach((pv) => { pv.querySelector('.tc').textContent = '--:--.-'; }); return; }
   const C = (clock.durationMs + clock.gapMs) / 1000;
   const now = performance.now() + clock.offset;
   const target = (((now - clock.t0) / 1000) % C + C) % C;
-  document.querySelectorAll('.pv video').forEach((v) => {
+  pvs.forEach((pv) => {
+    const v = pv.querySelector('video'), tc = pv.querySelector('.tc');
     const D = Math.min(v.duration || Infinity, clock.durationMs / 1000);
     const show = v.getAttribute('src') && !clock.stopped && now >= clock.t0 && target < D;
     v.style.visibility = show ? 'visible' : 'hidden';
-    if (!show) { if (!v.paused) v.pause(); return; }
+    if (!show) {
+      if (!v.paused) v.pause();
+      tc.textContent = clock.stopped ? 'STOPPED' : now < clock.t0 ? 'starting…' : v.getAttribute('src') ? 'black' : '--:--.-';
+      return;
+    }
+    tc.textContent = timecode(target) + (v.readyState < 2 ? ' ⏳' : '');
     if (v.readyState < 1) return;
     if (v.paused) v.play().catch(() => {});
     if (!v.seeking && Math.abs(v.currentTime - target) > 0.3 && performance.now() - (v.lastSeek || 0) > 1000) {
