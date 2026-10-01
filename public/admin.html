@@ -21,6 +21,9 @@
   .row:last-child { margin-bottom: 0; }
   .row label { width: 62px; color: #999; }
   .row > :not(label) { flex: 1; min-width: 120px; }
+  .row.inline { flex-wrap: nowrap; gap: 6px; }
+  .row.inline > :not(label) { flex: none; min-width: 0; }
+  .row.inline input { width: 3.6em; padding: 6px 4px 6px 8px; }
   .status { font-size: 13px; font-variant-numeric: tabular-nums; }
   .vol { width: 44px; text-align: right; flex: none !important; min-width: 0 !important; font-variant-numeric: tabular-nums; }
   table { width: 100%; border-collapse: collapse; }
@@ -92,13 +95,13 @@
 <div class="card">
   <div id="smokeInputs">
     <div>Next smoke in<div class="big" id="next">–</div></div>
-    <div class="row" style="margin-top:10px">
+    <div class="row inline" style="margin-top:10px">
       <label style="width:auto">Trigger at</label>
-      <input id="smokeMin" type="number" min="0" step="1" placeholder="mm" style="width:4.5em;flex:none">
+      <input id="smokeMin" type="number" min="0" step="1" placeholder="mm">
       <span style="flex:none">:</span>
-      <input id="smokeSec" type="number" min="0" max="59" step="1" placeholder="ss" style="width:4.5em;flex:none">
+      <input id="smokeSec" type="number" min="0" max="59" step="1" placeholder="ss">
       <span style="flex:none">into the video, during</span>
-      <input id="smokeDur" type="number" min="1" max="99" step="1" style="width:4.5em;flex:none">
+      <input id="smokeDur" type="number" min="1" max="99" step="1">
       <span style="flex:none">seconds</span>
     </div>
   </div>
