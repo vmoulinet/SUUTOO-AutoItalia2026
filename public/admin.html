@@ -26,7 +26,8 @@
   .row:last-child { margin-bottom: 0; }
   .row label { width: 62px; color: #999; }
   .row > :not(label) { flex: 1; min-width: 120px; }
-  .row.inline { flex-wrap: nowrap; gap: 6px; }
+  .row.inline { flex-wrap: wrap; gap: 6px; row-gap: 8px; }
+  .row.inline span { white-space: nowrap; }
   .row.inline > :not(label) { flex: none; min-width: 0; }
   .row.inline input { width: 3.6em; padding: 6px 4px 6px 8px; }
   .status { font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -52,6 +53,25 @@
   .off { opacity: .35; pointer-events: none; }
   .card.phone { display: flex; gap: 14px; align-items: flex-start; }
   .card.phone .ctl { flex: 1; min-width: 0; }
+  .card.phone .row { flex-wrap: nowrap; gap: 8px; }
+  .card.phone .row > :not(label) { min-width: 0; }
+  .card.phone .row label { flex: none; }
+  .card.phone .row > .status.dim { flex: 0 1 auto !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 6em; }
+  .card.phone select, .card.phone input.name { width: 100%; box-sizing: border-box; }
+  .card.phone .st { line-height: 1.5; overflow-wrap: anywhere; }
+  @media (max-width: 480px) {
+    body { padding: 12px; }
+    .card.phone { gap: 10px; padding: 10px; }
+    .card.phone .row label { width: 50px; }
+    .pv { height: 128px; }
+    #tabs button { padding: 9px 12px; }
+    td:first-child { overflow-wrap: anywhere; }
+    .day { flex-wrap: wrap; row-gap: 6px; }
+    .day .dlabel { flex: 1; width: auto; }
+    .day .add { order: 2; }
+    .day .ranges { order: 3; flex: 1 0 100%; }
+    .range input { min-width: 0; width: 7.5em; }
+  }
   button.wide { width: 150px; }
   .pv { flex: none; height: 160px; aspect-ratio: 9 / 16; background: #000; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
   .pv { position: relative; }
@@ -123,6 +143,29 @@
     <button id="smokeToggle" class="small wide" style="flex:none" onclick="post('/api/smoke-enabled', { enabled: !smokeEnabled })"></button>
     <button id="smokeTest" class="small wide" style="flex:none" onclick="post('/api/smoke')">💨 Test smoke</button>
   </div>
+</div>
+
+<div class="card" id="dmxCard">
+  <div class="row">
+    <label style="width:auto">DMX interface</label>
+    <select id="dmxIface">
+      <option value="">Not selected</option>
+      <option value="dmxking-max">DMX King ultraDMX MAX</option>
+      <option value="enttec-open">ENTTEC Open DMX USB</option>
+    </select>
+  </div>
+  <div id="dmxFields" style="display:none; margin-top:10px">
+    <div class="row"><label style="width:120px">Serial port</label><input id="dmxPort" type="text" placeholder="/dev/ttyUSB0" spellcheck="false" autocomplete="off"></div>
+    <div class="row" data-iface="dmxking-max"><label style="width:120px">Universe</label><input id="dmxUniverse" type="number" min="1" max="64" step="1"></div>
+    <div class="row" data-iface="enttec-open"><label style="width:120px">Refresh rate (Hz)</label><input id="dmxHz" type="number" min="1" max="44" step="1"></div>
+    <div class="row"><label style="width:120px">Smoke channel</label><input id="dmxChannel" type="number" min="1" max="512" step="1"></div>
+    <div class="row"><label style="width:120px">ON value</label><input id="dmxOn" type="number" min="0" max="255" step="1"></div>
+    <div class="row"><label style="width:120px">OFF value</label><input id="dmxOff" type="number" min="0" max="255" step="1"></div>
+    <div class="status dim" data-iface="enttec-open">Bare USB-serial interface: the Pi generates the DMX signal itself.</div>
+    <div class="status dim" data-iface="dmxking-max">The interface generates the DMX signal itself.</div>
+  </div>
+  <div class="status" id="dmxMsg" style="margin-top:6px"></div>
+  <div class="status dim" style="margin-top:6px">Settings are saved here; the server does not send DMX yet.</div>
 </div>
 </section>
 
@@ -269,6 +312,40 @@ for (const el of [$('smokeMin'), $('smokeSec'), $('smokeDur')]) {
   el.addEventListener('input', () => { editedAt.smoke = Date.now(); clearTimeout(smokeTimer); smokeTimer = setTimeout(saveSmoke, 1000); });
   el.addEventListener('change', saveSmoke);
   el.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSmoke(); });
+}
+
+// ---------- DMX interface ----------
+// Pick an interface, then its fields appear below. Saved automatically, like the smoke timing.
+const DMX_DEFAULTS = { channel: 1, onValue: 255, offValue: 0, port: '/dev/ttyUSB0', refreshHz: 40, universe: 1 };
+const DMX_FIELDS = { port: 'dmxPort', universe: 'dmxUniverse', refreshHz: 'dmxHz', channel: 'dmxChannel', onValue: 'dmxOn', offValue: 'dmxOff' };
+let dmxTimer;
+function dmxShow(iface) {
+  $('dmxFields').style.display = iface ? '' : 'none';
+  document.querySelectorAll('#dmxFields [data-iface]').forEach((el) => { el.style.display = el.dataset.iface === iface ? '' : 'none'; });
+}
+function dmxFill(cfg) {
+  const c = { ...DMX_DEFAULTS, ...(cfg || {}) };
+  $('dmxIface').value = c.interface || '';
+  for (const [k, id] of Object.entries(DMX_FIELDS)) $(id).value = c[k];
+  dmxShow(c.interface || '');
+}
+async function saveDmx() {
+  clearTimeout(dmxTimer);
+  const body = { interface: $('dmxIface').value };
+  for (const [k, id] of Object.entries(DMX_FIELDS)) body[k] = $(id).value.trim();
+  try {
+    await api('/api/dmx-config', body);
+    editedAt.dmx = 0;
+    $('dmxMsg').innerHTML = body.interface ? '<span class="ok">✓ Saved</span>' : '';
+    refresh();
+  } catch (e) { $('dmxMsg').innerHTML = `<span class="bad">Not saved: ${esc(e.message)}</span>`; }
+}
+$('dmxIface').addEventListener('change', () => { editedAt.dmx = Date.now(); dmxShow($('dmxIface').value); saveDmx(); });
+for (const id of Object.values(DMX_FIELDS)) {
+  const el = $(id);
+  el.addEventListener('input', () => { editedAt.dmx = Date.now(); clearTimeout(dmxTimer); dmxTimer = setTimeout(saveDmx, 1000); });
+  el.addEventListener('change', saveDmx);
+  el.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveDmx(); });
 }
 
 // ---------- Join card: QR code + addresses ----------
@@ -512,6 +589,7 @@ async function refresh() {
       $('smokeSec').value = Math.round(s.smokeAtSec % 60);
       $('smokeDur').value = s.smokeDurationSec;
     }
+    if (!recently('dmx') && !$('dmxCard').contains(document.activeElement)) dmxFill(s.dmx);
     smokeEnabled = s.smokeEnabled;
     $('smokeInputs').classList.toggle('off', !smokeEnabled);
     $('smokeToggle').textContent = smokeEnabled ? 'Deactivate smoke' : 'Activate smoke';

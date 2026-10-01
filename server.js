@@ -26,6 +26,8 @@ const STATE_FILE = path.join(ROOT, 'state.json');
 //   smokeEnabled : false = the smoke machine is never fired
 //   smokeDurationSec : how long the smoke runs (null = config smoke.pulseMs)
 //   smokeAtSec : moment of the smoke in the video, in seconds
+//   dmx : DMX interface chosen in the Smoke machine tab (settings only, no DMX output yet)
+const DMX_INTERFACES = ['dmxking-max', 'enttec-open'];
 let state = { phones: {}, smokeAtSec: 0, smokeDurationSec: null, smokeEnabled: true, slots: {}, durations: {}, schedule: { enabled: false, days: {} } };
 try { state = { ...state, ...JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) }; } catch {}
 if (state.smokeAtSec == null) state.smokeAtSec = 0;
@@ -388,6 +390,7 @@ const server = http.createServer(async (req, res) => {
     });
     return json(res, {
       now, t0, durationMs, gapMs, smokeMode: smoke.mode, stopped, smokeCount, lastSmokeAt, nextSmokeInMs,
+      dmx: state.dmx || null,
       smokeAtSec: state.smokeAtSec, smokeEnabled: state.smokeEnabled, smokeDurationSec: smokeDurationMs() / 1000,
       smokeActive: Date.now() < smokeActiveUntil, urls: accessUrls(), wifi: (refreshWifiName(), wifiName),
       schedule: { ...state.schedule, ...scheduleInfo(), override: scheduleOverride }, machine, logs: logs.slice(-150), videos: listVideos(), phones,
@@ -439,6 +442,32 @@ const server = http.createServer(async (req, res) => {
     // No retroactive firing: the next trigger is the next upcoming one
     if (durationMs) loopsDone = Math.max(0, smokeLoopsNow());
     log(`Smoke at ${at} s, for ${smokeDurationMs() / 1000} s`);
+    return json(res, { ok: true });
+  }
+
+  // DMX interface settings (Smoke machine tab). Saved only: the server does not send DMX yet.
+  // { interface: '' | 'dmxking-max' | 'enttec-open', channel, onValue, offValue, port, refreshHz, universe }
+  if (url.pathname === '/api/dmx-config' && req.method === 'POST') {
+    const b = await readBody(req);
+    const bad = (m) => { res.writeHead(400); return res.end(m); };
+    const iface = String(b.interface || '');
+    if (iface && !DMX_INTERFACES.includes(iface)) return bad('unknown interface');
+    if (!iface) {
+      state.dmx = { ...(state.dmx || {}), interface: '' };
+    } else {
+      const int = (v, lo, hi) => { const n = Number(v); return v !== '' && v !== null && Number.isInteger(n) && n >= lo && n <= hi ? n : null; };
+      const cfg = { interface: iface, channel: int(b.channel, 1, 512), onValue: int(b.onValue, 0, 255), offValue: int(b.offValue, 0, 255),
+        refreshHz: int(b.refreshHz, 1, 44), universe: int(b.universe, 1, 64), port: String(b.port || '').trim() };
+      if (cfg.channel === null) return bad('DMX channel must be between 1 and 512');
+      if (cfg.onValue === null) return bad('ON value must be between 0 and 255');
+      if (cfg.offValue === null) return bad('OFF value must be between 0 and 255');
+      if (cfg.refreshHz === null) return bad('Refresh rate must be between 1 and 44 Hz');
+      if (cfg.universe === null) return bad('Universe must be between 1 and 64');
+      if (!/^[\w./:-]{1,60}$/.test(cfg.port)) return bad('Serial port looks invalid (example: /dev/ttyUSB0)');
+      state.dmx = cfg;
+    }
+    saveState();
+    log(state.dmx.interface ? `DMX interface: ${state.dmx.interface}, channel ${state.dmx.channel} (ON ${state.dmx.onValue} / OFF ${state.dmx.offValue})` : 'DMX interface: none selected');
     return json(res, { ok: true });
   }
 

@@ -63,7 +63,7 @@ async function syncOnce() {
   const a = performance.now();
   const vid = loaded ? `&vn=${encodeURIComponent(videoInfo.name)}&vd=${Math.round(video.duration * 1000)}` : '';
   const extra = bestRtt() !== null ? `&rtt=${Math.round(bestRtt())}` : '';
-  const r = await fetch(`/api/time?id=${id}${vid}${extra}&drift=${Math.round(driftMs)}&loaded=${loaded ? 1 : 0}&sound=${allowed && !video.muted && (volumeSettable || (audioReady && audioCtx.state === 'running')) ? 1 : 0}&vm=${volumeSettable ? 'element' : audioReady ? 'gain' : audioCtx ? 'ctx-' + audioCtx.state : 'none'}`, { cache: 'no-store' });
+  const r = await fetch(`/api/time?id=${id}${vid}${extra}&drift=${Math.round(driftMs)}&loaded=${loaded ? 1 : 0}&sound=${allowed && !video.muted && (volumeSettable || (audioReady && audioCtx.state === 'running')) ? 1 : 0}&vm=${volumeSettable ? 'element' : audioReady ? 'gain' : audioCtx ? 'ctx-' + audioCtx.state : 'none'}`, { cache: 'no-store', signal: window.AbortSignal && AbortSignal.timeout ? AbortSignal.timeout(4000) : undefined });
   const data = await r.json();
   const b = performance.now();
   const rtt = b - a;
@@ -348,9 +348,10 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) { sy
 (async () => {
   // The server's first reply says which video to load
   for (;;) {
-    try { await syncOnce(); } catch {}
+    let unreachable = false;
+    try { await syncOnce(); } catch { unreachable = true; }
     if (videoInfo) break;
-    msg.textContent = 'No video assigned – waiting…';
+    msg.textContent = unreachable ? 'Server unreachable – check Wi-Fi' : 'No video assigned – waiting…';
     await new Promise((ok) => setTimeout(ok, 2000));
   }
   const sync = syncLoop();
