@@ -1,0 +1,8 @@
+{
+  "name": "Expo",
+  "short_name": "Expo",
+  "start_url": "/",
+  "display": "fullscreen",
+  "background_color": "#000000",
+  "theme_color": "#000000"
+}

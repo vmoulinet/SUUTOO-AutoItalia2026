@@ -1,0 +1,14 @@
+[Unit]
+Description=Sutuu expo server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=__USER__
+WorkingDirectory=__DIR__
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

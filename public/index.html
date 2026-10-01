@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>Expo</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
+  video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+  #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+             color: #888; font: 15px -apple-system, system-ui, sans-serif; text-align: center; padding: 24px; }
+  #bar { width: 60%; height: 3px; background: #222; }
+  #bar > div { height: 100%; width: 0; background: #888; }
+  #debug { position: fixed; left: 8px; bottom: 8px; color: #0f0; font: 11px ui-monospace, monospace; white-space: pre; display: none; }
+  #debug u { text-decoration: underline dotted; cursor: pointer; }
+</style>
+</head>
+<body>
+<video id="v" playsinline webkit-playsinline preload="auto" disablepictureinpicture></video>
+<div id="overlay"><div id="msg">Loading video…</div><div id="bar"><div></div></div></div>
+<div id="debug"><span id="dbgText"></span>
+<u id="dbgReload"></u></div>
+
+<script>
+const video = document.getElementById('v');
+const overlay = document.getElementById('overlay');
+const msg = document.getElementById('msg');
+const bar = document.querySelector('#bar > div');
+const debugEl = document.getElementById('debug');
+if (location.search.includes('debug')) debugEl.style.display = 'block';
+
+const id = localStorage.getItem('screenId') || Math.random().toString(36).slice(2, 8);
+localStorage.setItem('screenId', id);
+// Number of page starts: if it climbs by itself, iOS is killing the page (out of memory)
+let loadCount = (Number(localStorage.getItem('loadCount')) || 0) + 1;
+localStorage.setItem('loadCount', loadCount);
+// Tapping the "reloads" line in the debug overlay resets the counter to 0
+document.getElementById('dbgReload').addEventListener('click', () => {
+  loadCount = 1;
+  localStorage.setItem('loadCount', loadCount);
+});
+
+// ---------- Clock synchronised with the server ----------
+let offset = null;          // serverTime ≈ performance.now() + offset
+let samples = [];           // [{rtt, offset}]
+let t0 = null, durationMs = null, gapMs = 0, stopped = false;
+let loaded = false, driftMs = 0;
+const bestRtt = () => (samples.length ? Math.min(...samples.map((s) => s.rtt)) : null);
+let videoInfo = null;       // { name, url }: video assigned to this screen from the control panel
+let volume = 1;             // set from the control panel
+let reloadToken = null;     // changes when "Reload screens" is pressed in the control panel
+
+const serverNow = () => performance.now() + offset;
+
+async function syncOnce() {
+  const a = performance.now();
+  const vid = loaded ? `&vn=${encodeURIComponent(videoInfo.name)}&vd=${Math.round(video.duration * 1000)}` : '';
+  const extra = bestRtt() !== null ? `&rtt=${Math.round(bestRtt())}` : '';
+  const r = await fetch(`/api/time?id=${id}${vid}${extra}&drift=${Math.round(driftMs)}&loaded=${loaded ? 1 : 0}&sound=${allowed && !video.muted && (!audioCtx || audioCtx.state === 'running') ? 1 : 0}`, { cache: 'no-store' });
+  const data = await r.json();
+  const b = performance.now();
+  const rtt = b - a;
+  samples.push({ rtt, offset: data.now - (a + rtt / 2) });
+  samples = samples.slice(-15);
+  // Keep the sample with the lowest round trip = the most accurate
+  offset = samples.reduce((best, s) => (s.rtt < best.rtt ? s : best)).offset;
+  t0 = data.t0;
+  durationMs = data.durationMs;
+  gapMs = data.gapMs || 0;
+  stopped = !!data.stopped;
+  volume = (data.volume ?? 100) / 100;
+  applyVolume();
+  // "Reload screens" from the control panel
+  if (reloadToken === null) reloadToken = data.reload;
+  else if (data.reload !== reloadToken) { reloadToken = data.reload; softReload(); }
+  // The control panel changed (or replaced) this screen's video: reload the page
+  if (videoInfo && data.video && data.video.url !== videoInfo.url) location.reload();
+  if (!videoInfo) videoInfo = data.video;
+}
+
+// ---------- Volume ----------
+// On iPhone, video.volume is read-only: go through Web Audio (GainNode),
+// which is only allowed to start after a tap.
+const volumeSettable = (() => { const a = new Audio(); a.volume = 0.5; return a.volume === 0.5; })();
+let audioCtx = null, gainNode = null;
+// The volume is ramped over ~150 ms: a sudden step makes the waveform jump, which pops.
+let volumeRamp = null;
+function applyVolume() {
+  if (volumeSettable) {
+    if (video.volume === volume || volumeRamp) return;
+    const from = video.volume, steps = 10;
+    let i = 0;
+    volumeRamp = setInterval(() => {
+      i++;
+      video.volume = i >= steps ? volume : from + (volume - from) * (i / steps);
+      if (i >= steps) { clearInterval(volumeRamp); volumeRamp = null; applyVolume(); }
+    }, 15);
+  } else if (gainNode) gainNode.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.05);
+}
+function setupAudio() {
+  if (volumeSettable) return;
+  try {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AC();
+      gainNode = audioCtx.createGain();
+      audioCtx.createMediaElementSource(video).connect(gainNode).connect(audioCtx.destination);
+      applyVolume();
+    }
+    if (audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
+  } catch {}
+}
+
+async function syncLoop() {
+  for (let i = 0; i < 8; i++) { try { await syncOnce(); } catch {} }
+  setInterval(() => syncOnce().catch(() => {}), 1000); // if the network drops, keep going with the last offset
+}
+
+// ---------- One-time loading of the video into memory ----------
+async function loadVideo() {
+  const res = await fetch(videoInfo.url);
+  const total = Number(res.headers.get('Content-Length')) || 0;
+  const reader = res.body.getReader();
+  const chunks = [];
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    got += value.length;
+    if (total) bar.style.width = (100 * got / total) + '%';
+  }
+  const blob = new Blob(chunks, { type: res.headers.get('Content-Type') || 'video/mp4' });
+  video.src = URL.createObjectURL(blob);
+  await new Promise((ok) => video.addEventListener('loadedmetadata', ok, { once: true }));
+  loaded = true;
+  await syncOnce();   // reports the video duration to the server
+}
+
+// "Reload screens": starts over without reloading the page, which would leave fullscreen
+// and lose the sound permission (both need a tap). Black screen, video downloaded again,
+// then the control loop resumes on its own.
+let softReloading = false;
+async function softReload() {
+  if (softReloading) return;
+  softReloading = true;
+  loaded = false;                      // control() does nothing until the video is back
+  video.pause();
+  video.style.visibility = 'hidden';
+  preRollScheduled = false; justStarted = false; frame = null; seekingUntil = 0; driftMs = 0;
+  const oldSrc = video.src;
+  try {
+    await loadVideo();
+    if (oldSrc.startsWith('blob:')) URL.revokeObjectURL(oldSrc);
+  } catch {
+    location.reload();                 // last resort
+  }
+  softReloading = false;
+}
+
+// ---------- Playback control loop ----------
+let seekingUntil = 0;
+let allowed = false;        // true once the browser has agreed to play
+// Time this phone takes to start playback (s). Learned on every cycle.
+let startLead = Number(localStorage.getItem('startLead2')) || 0.1;
+let preRollScheduled = false;
+let justStarted = false;
+let startDrifts = [];       // last offsets measured at start (ms)
+
+const cycleSec = () => (durationMs + gapMs) / 1000;
+const targetAt = (t) => { const C = cycleSec(); return (((t + offset - t0) / 1000) % C + C) % C; };
+const wrap = (d) => { const C = cycleSec(); return d > C / 2 ? d - C : d < -C / 2 ? d + C : d; };
+
+function learnStart(d) {
+  justStarted = false;
+  startDrifts = [...startDrifts, Math.round(d * 1000)].slice(-5);
+  if (Math.abs(d) < 0.3) startLead = Math.max(0, Math.min(0.5, startLead - d * 0.7));
+  localStorage.setItem('startLead2', startLead.toFixed(3));
+}
+
+// Precise measurement: the browser tells us when each frame is actually shown
+// on screen and which video position it represents.
+let frame = null;           // { d, at }
+function onFrame(_, meta) {
+  if (durationMs && offset !== null) {
+    const d = wrap(meta.mediaTime - targetAt(meta.expectedDisplayTime));
+    frame = { d, at: performance.now() };
+    if (justStarted && !video.paused) learnStart(d);
+  }
+  video.requestVideoFrameCallback(onFrame);
+}
+const hasFrameCb = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+if (hasFrameCb) video.requestVideoFrameCallback(onFrame);
+
+// One cycle = video (D) then black screen (G), locked to the server clock.
+function control() {
+  if (!loaded || !allowed || offset === null || !durationMs) return;
+  const D = Math.min(video.duration || durationMs / 1000, durationMs / 1000);   // this video (may be shorter than the cycle)
+  const C = cycleSec();
+  const target = targetAt(performance.now());
+  video.loop = gapMs === 0 && Math.abs(D - durationMs / 1000) < 0.05;
+
+  if (stopped) {
+    // Stopped from the control panel: black screen until restart
+    preRollScheduled = false;
+    driftMs = 0;
+    video.style.visibility = 'hidden';
+    if (!video.paused) video.pause();
+    if (video.currentTime !== 0) video.currentTime = 0;
+    return;
+  }
+
+  // Before t0 (restart scheduled in 2 s): black, then synchronised start
+  const beforeStart = serverNow() < t0;
+  if (beforeStart || target >= D) {
+    if (preRollScheduled) return;
+    const remaining = beforeStart ? (t0 - serverNow()) / 1000 : C - target;
+    if (remaining <= startLead + 0.15) {
+      // End of the black: start playback startLead early so that the
+      // first frame lands on time despite the start-up delay.
+      preRollScheduled = true;
+      setTimeout(() => {
+        if (stopped) return;
+        video.playbackRate = 1;
+        video.style.visibility = 'visible';
+        video.play().catch(() => {});
+        justStarted = true;
+      }, Math.max(0, (remaining - startLead) * 1000));
+      return;
+    }
+    // Black screen: stop and rewind for the next start
+    driftMs = 0;
+    video.style.visibility = 'hidden';
+    if (!video.paused) video.pause();
+    if (video.currentTime !== 0) video.currentTime = 0;
+    return;
+  }
+
+  preRollScheduled = false;
+  video.style.visibility = 'visible';
+  if (video.paused) {
+    video.playbackRate = 1;
+    video.play().catch(() => {});
+    return;
+  }
+
+  // >0: ahead, <0: behind. Frame-accurate measurement if available, else currentTime.
+  const now = performance.now();
+  const d = frame && now - frame.at < 300 ? frame.d : wrap(video.currentTime - target);
+  driftMs = d * 1000;
+
+  // Without frame measurement: learn the lead on the first tick after start
+  if (justStarted && !hasFrameCb && video.currentTime > 0) learnStart(d);
+
+  if (now < seekingUntil) return;
+
+  // Tolerance: 1 s. Below it nothing is touched (no playbackRate change, which clicks);
+  // above it, direct jump (slightly ahead to compensate for the seek time).
+  if (Math.abs(d) > 1) {
+    video.playbackRate = 1;
+    video.currentTime = Math.min(target + 0.2, D);
+    seekingUntil = now + 1500;
+  } else if (video.playbackRate !== 1) {
+    video.playbackRate = 1;
+  }
+}
+
+const fmtUptime = (t) => `${Math.floor(t / 3600)} h ${String(Math.floor(t / 60) % 60).padStart(2, '0')} min ${String(Math.floor(t) % 60).padStart(2, '0')} s`;
+
+function showDebug() {
+  if (debugEl.style.display !== 'block') return;
+  document.getElementById('dbgText').textContent = [
+    `id ${id}`,
+    `drift ${driftMs.toFixed(0)} ms`,
+    `rate ${video.playbackRate}`,
+    `lead ${(startLead * 1000).toFixed(0)} ms`,
+    `video ${videoInfo ? videoInfo.name : '?'}`,
+    `uptime ${fmtUptime(performance.now() / 1000)}`,
+    `dropped frames ${video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality().droppedVideoFrames : '?'}`,
+    `sound ${video.muted ? 'NO' : 'yes'} · vol ${Math.round(volume * 100)}`,
+    `rtt ${bestRtt() !== null ? bestRtt().toFixed(0) : '?'} ms`,
+  ].join('\n');
+  document.getElementById('dbgReload').textContent = `reloads ${loadCount - 1} (tap to reset)`;
+}
+
+// Sound requires a tap on the screen (iOS/Android rule).
+// Without a tap, the video still starts, muted: a screen that restarts by
+// itself keeps running, and the control panel flags "sound: NO".
+async function start() {
+  video.muted = false;
+  try {
+    await video.play();
+    overlay.style.display = 'none';
+  } catch {
+    video.muted = true;
+    try { await video.play(); overlay.style.display = 'none'; } catch {
+      msg.textContent = 'Tap the screen to start';
+      document.getElementById('bar').style.display = 'none';
+    }
+    document.addEventListener('click', () => start(), { once: true });
+  }
+  allowed = true;
+  control();
+}
+
+// Android / Chrome: a tap goes fullscreen (hides the URL bar).
+// No effect on iPhone, where "Add to Home Screen" is used instead.
+document.addEventListener('click', () => {
+  setupAudio();
+  const el = document.documentElement;
+  if (document.fullscreenElement || !el.requestFullscreen) return;
+  el.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+});
+
+// Blocks zoom, long-press (menu) and double-tap: visitors can't trigger anything
+for (const ev of ['contextmenu', 'gesturestart', 'dblclick']) document.addEventListener(ev, (e) => e.preventDefault());
+document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
+// Back from background: resync (control() restarts playback if needed)
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { syncOnce().catch(() => {}); if (audioCtx) setupAudio(); } });
+
+(async () => {
+  // The server's first reply says which video to load
+  for (;;) {
+    try { await syncOnce(); } catch {}
+    if (videoInfo) break;
+    msg.textContent = 'No video assigned – waiting…';
+    await new Promise((ok) => setTimeout(ok, 2000));
+  }
+  const sync = syncLoop();
+  try {
+    await loadVideo();
+  } catch (e) {
+    msg.textContent = 'Loading error – retrying…';
+    setTimeout(() => location.reload(), 5000);
+    return;
+  }
+  await sync;
+  setInterval(() => { control(); showDebug(); }, 100);
+  start();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "port": 8080,
+  "videoFile": "video/slot-1.mp4",
+  "videoDurationSec": null,
+  "blackGapSec": 0,
+
+  "smoke": {
+    "mode": "log",
+    "onUrl": "http://192.168.1.50/relay/0?turn=on",
+    "offUrl": "http://192.168.1.50/relay/0?turn=off",
+    "pulseMs": 3000,
+    "leadMs": 0,
+    "everyNLoops": 1
+  }
+}

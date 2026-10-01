@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expo control panel</title>
+<style>
+  body { font: 15px -apple-system, system-ui, sans-serif; background: #111; color: #eee; margin: 0; padding: 16px; max-width: 760px; }
+  :root { color-scheme: dark; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 16px; margin: 28px 0 8px; color: #aaa; font-weight: 600; }
+  .big { font-size: 32px; font-variant-numeric: tabular-nums; }
+  .ok { color: #4c4; } .warn { color: #fa0; } .bad { color: #f55; } .dim { color: #888; }
+  button { font: inherit; padding: 10px 16px; margin: 0 8px 8px 0; border: 0; border-radius: 6px; background: #333; color: #eee; cursor: pointer; }
+  button.smoke { background: #a33; }
+  button.small { padding: 5px 10px; margin: 0; font-size: 13px; }
+  input, select { font: inherit; background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 6px 8px; }
+  input[type=range] { padding: 0; width: 100%; accent-color: #4a9; }
+  .card { background: #1a1a1a; border: 1px solid #2c2c2c; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .row:last-child { margin-bottom: 0; }
+  .row label { width: 62px; color: #999; }
+  .row > :not(label) { flex: 1; min-width: 120px; }
+  .status { font-size: 13px; font-variant-numeric: tabular-nums; }
+  .vol { width: 44px; text-align: right; flex: none !important; min-width: 0 !important; font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 6px 4px; border-bottom: 1px solid #2c2c2c; }
+  td.r { text-align: right; white-space: nowrap; }
+  progress { width: 100%; }
+  #logs { max-height: 240px; overflow-y: auto; font: 12px ui-monospace, monospace; line-height: 1.6; }
+  #logs .t { color: #777; margin-right: 8px; }
+  #tabs { display: flex; gap: 4px; border-bottom: 1px solid #333; margin: 6px 0 16px; overflow-x: auto; }
+  #tabs button { margin: 0; padding: 9px 16px; border-radius: 6px 6px 0 0; background: none; color: #999; border-bottom: 2px solid transparent; white-space: nowrap; }
+  #tabs button.active { color: #fff; border-bottom-color: #4a9; background: #1a1a1a; }
+  .tab { display: none; }
+  .tab.active { display: block; }
+  .day { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #2c2c2c; }
+  .day:last-child { border-bottom: 0; }
+  .day .dlabel { width: 90px; flex: none; }
+  .day .ranges { flex: 1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .range { display: inline-flex; align-items: center; gap: 4px; }
+  .range input { padding: 4px 6px; }
+  .range .x { padding: 4px 8px; }
+  .off { opacity: .35; pointer-events: none; }
+  .card.phone { display: flex; gap: 14px; align-items: flex-start; }
+  .card.phone .ctl { flex: 1; min-width: 0; }
+  button.wide { width: 150px; }
+  .pv { flex: none; height: 160px; aspect-ratio: 9 / 16; background: #000; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
+  .pv video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pv.offline { opacity: .4; }
+</style>
+</head>
+<body>
+<h1>Expo control panel</h1>
+<p id="info" class="bad" style="margin:0 0 10px"></p>
+<p>
+  <button id="stop" class="smoke" onclick="confirm('Stop the video? All screens go black, no more smoke.') && post('/api/stop')">⏹ Stop (black screen)</button>
+  <button id="play" onclick="post('/api/restart')" style="display:none; background:#2a7">▶ Resume video</button>
+  <button onclick="confirm('Restart the video from the beginning on all screens?') && post('/api/restart')">↺ Restart loop</button>
+  <button onclick="confirm('Reload the page on all screens?') && post('/api/reload')">⟳ Reload screens</button>
+</p>
+
+<nav id="tabs">
+  <button data-tab="screens">Screens</button>
+  <button data-tab="library">Library</button>
+  <button data-tab="smoke">Smoke machine</button>
+  <button data-tab="automation">Automation</button>
+  <button data-tab="logs">Logs</button>
+</nav>
+
+<section class="tab" data-tab="screens">
+<div id="phones"><div class="dim">No screen connected</div></div>
+</section>
+
+<section class="tab" data-tab="library">
+<div class="card">
+  <table id="videos"></table>
+  <progress id="prog" max="100" value="0" style="display:none; margin-top:8px"></progress>
+  <div class="status" id="upStatus"></div>
+</div>
+</section>
+
+<section class="tab" data-tab="smoke">
+<div class="card">
+  <div id="smokeInputs">
+    <div>Next smoke in<div class="big" id="next">–</div></div>
+    <div class="row" style="margin-top:10px">
+      <label style="width:auto">Trigger at</label>
+      <input id="smokeAt" type="number" min="0" step="0.1" style="max-width:120px">
+      <span style="flex:none">seconds into the video, during</span>
+      <input id="smokeDur" type="number" min="0.1" max="300" step="0.1" style="max-width:80px">
+      <span style="flex:none">seconds</span>
+    </div>
+  </div>
+  <div class="status" id="machineLink" style="margin-top:10px"></div>
+  <div class="row" style="margin-top:6px">
+    <button id="smokeToggle" class="small wide" style="flex:none" onclick="post('/api/smoke-enabled', { enabled: !smokeEnabled })"></button>
+    <button id="smokeTest" class="small wide" style="flex:none" onclick="post('/api/smoke')">💨 Test smoke</button>
+  </div>
+</div>
+</section>
+
+<section class="tab" data-tab="automation">
+<div class="card">
+  <div class="row">
+    <button id="schedToggle" class="small wide" style="flex:none" onclick="post('/api/schedule', { enabled: !schedule.enabled })"></button>
+    <span class="status dim" style="flex:none">All times are GMT · now <b id="gmtClock"></b></span>
+  </div>
+  <div class="status" id="schedStatus" style="margin:6px 0 12px"></div>
+  <div id="schedDays"></div>
+  <div class="status bad" id="schedErr"></div>
+  <div class="status dim" style="margin-top:8px">The system only runs inside these time windows. Outside them it is stopped, unless you press "Resume video": it then runs until the end of the next window.</div>
+</div>
+</section>
+
+<section class="tab" data-tab="logs">
+<div class="card">
+  <div class="row">
+    <select id="logView" style="flex:1"><option value="live">Live (latest 150)</option></select>
+    <a id="logDl" class="status" style="flex:none; color:#8ab; display:none" download>Download</a>
+  </div>
+  <div id="logs" class="status"></div>
+</div>
+</section>
+<input id="file" type="file" accept="video/mp4,video/quicktime,.mp4,.mov" style="display:none">
+
+<script>
+const $ = (id) => document.getElementById(id);
+let videos = [];
+let smokeEnabled = true;
+const editedAt = {};   // control id -> last local edit (avoids overwriting what is being edited)
+const recently = (k) => Date.now() - (editedAt[k] || 0) < 2500;
+
+async function api(u, body) {
+  const r = await fetch(u, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) });
+  if (!r.ok) throw new Error((await r.text()) || r.status);
+}
+async function post(u, body) {
+  try { await api(u, body); refresh(); }
+  catch (e) { alert(`The command failed (${e.message}). Is the server up to date? Restart it: Ctrl+C then node server.js`); }
+}
+
+// ---------- Tabs ----------
+function showTab(name) {
+  if (!document.querySelector(`.tab[data-tab="${name}"]`)) name = 'screens';
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+  try { localStorage.setItem('adminTab', name); } catch {}
+  if (name === 'logs') { const box = $('logs'); box.scrollTop = box.scrollHeight; }
+}
+document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+showTab((() => { try { return localStorage.getItem('adminTab'); } catch { return null; } })() || 'screens');
+
+// ---------- Automation (schedule, GMT) ----------
+const DAY_ORDER = [['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'], ['fri', 'Friday'], ['sat', 'Saturday'], ['sun', 'Sunday']];
+let schedule = { enabled: false, days: {} };
+let schedDirty = false;   // local edits not accepted by the server yet (e.g. end before start)
+const gmt = (ts, opts) => new Date(ts).toLocaleString('en-GB', { timeZone: 'UTC', ...opts });
+const gmtWhen = (ts) => gmt(ts, { weekday: 'short', hour: '2-digit', minute: '2-digit' }) + ' GMT';
+
+function renderSchedule() {
+  $('schedDays').innerHTML = DAY_ORDER.map(([k, label]) => `<div class="day" data-day="${k}"><div class="dlabel">${label}</div><div class="ranges">${
+    (schedule.days[k] || []).map((r, i) => `<span class="range" data-i="${i}"><input type="time" data-f="start" value="${r.start}"> – <input type="time" data-f="end" value="${r.end}"><button class="small x" title="Remove">✕</button></span>`).join('')
+    || '<span class="dim">Closed</span>'}</div><button class="small add" title="Add a time window">+ Add</button></div>`).join('');
+}
+async function saveSchedule() {
+  editedAt.sch = Date.now();
+  try {
+    await api('/api/schedule', { days: schedule.days });
+    schedDirty = false; $('schedErr').textContent = '';
+    refresh();
+  } catch (e) { schedDirty = true; $('schedErr').textContent = `Not saved: ${e.message}`; }
+}
+$('schedDays').addEventListener('change', (e) => {
+  const input = e.target.closest('input[type=time]');
+  if (!input) return;
+  const day = input.closest('.day').dataset.day, i = Number(input.closest('.range').dataset.i);
+  schedule.days[day][i][input.dataset.f] = input.value;
+  saveSchedule();
+});
+$('schedDays').addEventListener('click', (e) => {
+  const day = e.target.closest('.day') && e.target.closest('.day').dataset.day;
+  if (e.target.closest('.add')) { (schedule.days[day] = schedule.days[day] || []).push({ start: '09:00', end: '18:00' }); renderSchedule(); saveSchedule(); }
+  else if (e.target.closest('.x')) { schedule.days[day].splice(Number(e.target.closest('.range').dataset.i), 1); renderSchedule(); saveSchedule(); }
+});
+setInterval(() => { $('gmtClock').textContent = gmt(Date.now(), { weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' }); }, 1000);
+
+// ---------- Smoke ----------
+// Saved automatically: shortly after typing stops, or on Enter / leaving the field
+function saveSmoke() {
+  clearTimeout(smokeTimer);
+  editedAt.smoke = 0;
+  const at = $('smokeAt').value.trim(), d = Number($('smokeDur').value);
+  if (at === '' || !(Number(at) >= 0) || !(d > 0)) return refresh();   // invalid: the fields go back to the current values
+  post('/api/smoke-time', { atSec: Number(at), durationSec: d });
+}
+let smokeTimer;
+for (const el of [$('smokeAt'), $('smokeDur')]) {
+  el.addEventListener('input', () => { editedAt.smoke = Date.now(); clearTimeout(smokeTimer); smokeTimer = setTimeout(saveSmoke, 1000); });
+  el.addEventListener('change', saveSmoke);
+  el.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSmoke(); });
+}
+
+// ---------- Screens ----------
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+const TRASH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 10v6M14 10v6"/></svg>';
+
+function phoneCard(p) {
+  const el = document.createElement('div');
+  el.className = 'card phone';
+  el.dataset.id = p.id;
+  el.innerHTML = `<div class="ctl">
+    <div class="row"><label>Screen</label><input class="name" placeholder="Name (e.g. Left)"><span class="status dim" style="flex:none">${esc(p.id)}</span>
+      <button class="small trash" title="Forget this screen" style="flex:none">${TRASH}</button></div>
+    <div class="row"><label>Video</label><select class="video"></select></div>
+    <div class="row"><label>Volume</label><input class="volume" type="range" min="0" max="100"><span class="vol">100</span></div>
+    <div class="status st"></div></div>
+    <div class="pv" title="Live preview (same point in the video as the phone)"><video muted playsinline preload="auto"></video></div>`;
+  el.querySelector('.pv video').muted = true;
+  const key = (k) => p.id + k;
+  const send = (body) => post('/api/phone', { id: p.id, ...body });
+  const name = el.querySelector('.name'), sel = el.querySelector('.video'), vol = el.querySelector('.volume'), volT = el.querySelector('.vol');
+  name.addEventListener('input', () => { editedAt[key('n')] = Date.now(); });
+  name.addEventListener('change', () => { editedAt[key('n')] = 0; send({ name: name.value }); });
+  sel.addEventListener('change', () => { editedAt[key('s')] = Date.now(); send({ video: sel.value }); });
+  el.querySelector('.trash').addEventListener('click', () => {
+    const who = name.value || p.id;
+    if (confirm(`Forget screen "${who}"? Its name, video and volume settings are deleted.` + (el.querySelector('.st').textContent.includes('offline') ? '' : '\nIt is still connected: it will reappear as a new screen.'))) {
+      post('/api/phone-delete', { id: p.id });
+    }
+  });
+  let t;
+  vol.addEventListener('input', () => {
+    editedAt[key('v')] = Date.now();
+    volT.textContent = vol.value;
+    clearTimeout(t);
+    t = setTimeout(() => send({ volume: Number(vol.value) }), 150);
+  });
+  return el;
+}
+
+function renderPhones(list) {
+  const box = $('phones');
+  if (!list.length) { box.innerHTML = '<div class="dim">No screen connected</div>'; return; }
+  if (!box.querySelector('.card')) box.innerHTML = '';
+  const optionsHtml = videos.map((v) => `<option value="${esc(v.name)}">${esc(vidLabel(v))}</option>`).join('');
+  const ids = new Set(list.map((p) => p.id));
+  box.querySelectorAll('.card[data-id]').forEach((el) => { if (!ids.has(el.dataset.id)) el.remove(); });   // forgotten screens
+  for (const p of list) {
+    let el = box.querySelector(`.card[data-id="${CSS.escape(p.id)}"]`);
+    if (!el) box.appendChild(el = phoneCard(p));
+    const name = el.querySelector('.name'), sel = el.querySelector('.video'), vol = el.querySelector('.volume');
+    if (sel.dataset.opts !== optionsHtml) { sel.innerHTML = optionsHtml; sel.dataset.opts = optionsHtml; sel.dataset.stale = '1'; }
+    if (!recently(p.id + 'n') && document.activeElement !== name) name.value = p.name;
+    if ((!recently(p.id + 's') && document.activeElement !== sel) || sel.dataset.stale) { sel.value = p.video || ''; delete sel.dataset.stale; }
+    if (!recently(p.id + 'v')) { vol.value = p.volume; el.querySelector('.vol').textContent = p.volume; }
+
+    // Preview: same file as the phone (?v= busts the cache when the file is replaced)
+    const vid = videos.find((v) => v.name === p.video);
+    const pvVideo = el.querySelector('.pv video');
+    const src = vid ? `/video/${encodeURIComponent(vid.name)}?v=${vid.version}` : '';
+    if (pvVideo.dataset.src !== src) {
+      pvVideo.dataset.src = src;
+      pvVideo.removeAttribute('src');
+      pvVideo.load();
+      if (src) blobFor(src).then((u) => { if (u && pvVideo.dataset.src === src) pvVideo.src = u; });
+    }
+    el.querySelector('.pv').classList.toggle('offline', !p.client);
+
+    const c = p.client;
+    el.querySelector('.st').innerHTML = !c ? '<span class="bad">offline</span>' : (() => {
+      const drift = Math.abs(c.driftMs), age = c.ageMs / 1000;
+      const dc = drift < 20 ? 'ok' : drift < 50 ? 'warn' : 'bad';
+      return `${c.loaded ? '<span class="ok">video ✓</span>' : '<span class="warn">video…</span>'} ·
+        <span class="${c.sound ? 'ok' : 'bad'}">${c.sound ? 'sound yes' : 'sound NO – tap the screen'}</span> ·
+        <span class="${dc}">drift ${c.driftMs} ms</span> ·
+        <span class="${c.rttMs == null ? 'dim' : c.rttMs < 50 ? 'ok' : c.rttMs < 150 ? 'warn' : 'bad'}">rtt ${c.rttMs == null ? '?' : c.rttMs + ' ms'}</span> ·
+        <span class="${age < 8 ? 'ok' : 'bad'}">seen ${age.toFixed(0)} s ago</span>
+        <span class="dim">${esc((c.ip || '').replace('::ffff:', ''))}</span>`;
+    })();
+    if (!p.assigned && p.video) el.querySelector('.st').innerHTML += ' · <span class="dim">default video</span>';
+  }
+}
+
+// ---------- Videos ----------
+const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
+const ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11M8 10l4 4 4-4M9 6H8a4 4 0 0 0-4 4v6a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-6a4 4 0 0 0-4-4h-1"/></svg>';
+const vidLabel = (v) => `Video ${v.slot}` + (v.label ? ` – ${v.label}` : '');
+function renderVideos() {
+  $('videos').innerHTML = [1, 2, 3].map((n) => {
+    const v = videos.find((x) => x.slot === n);
+    return `<tr><td>${v ? esc(vidLabel(v)) : `Video ${n} <span class="dim">(empty)</span>`}</td>
+      <td class="r dim">${v ? mb(v.size) : ''}</td>
+      <td class="r"><button class="small" title="Import a video" onclick="pickVideo(${n})">${ICON}</button></td></tr>`;
+  }).join('');
+}
+
+function upload(file, slot) {
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `/api/upload?slot=${slot}&label=${encodeURIComponent(file.name)}`);
+  $('prog').style.display = ''; $('prog').value = 0;
+  $('upStatus').textContent = `Uploading ${file.name}…`;
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) $('prog').value = 100 * e.loaded / e.total; };
+  xhr.onload = () => {
+    $('prog').style.display = 'none';
+    $('upStatus').innerHTML = xhr.status === 200 ? `<span class="ok">✓ Video ${slot} replaced</span>` : `<span class="bad">Failed: ${esc(xhr.responseText)}</span>`;
+    refresh();
+  };
+  xhr.onerror = () => { $('prog').style.display = 'none'; $('upStatus').innerHTML = '<span class="bad">Failed: connection lost</span>'; };
+  xhr.send(file);
+}
+let pickSlot = null;
+function pickVideo(n) { pickSlot = n; $('file').value = ''; $('file').click(); }
+$('file').addEventListener('change', () => {
+  const f = $('file').files[0];
+  if (f && confirm(`Replace video ${pickSlot} with ${f.name}?`)) upload(f, pickSlot);
+});
+
+// ---------- Live previews ----------
+// Same logic as the phones: position = (server time - t0) modulo cycle.
+// Each video is downloaded once into memory (like on the phones) so previews never stall on the network.
+const blobs = new Map();   // video url -> Promise<object url>
+function blobFor(url) {
+  if (!blobs.has(url)) {
+    blobs.set(url, fetch(url).then((r) => r.blob()).then((b) => URL.createObjectURL(b)).catch(() => { blobs.delete(url); return null; }));
+  }
+  return blobs.get(url);
+}
+let clock = null;          // { samples, offset, t0, durationMs, gapMs, stopped }
+function updateClock(s, a, b) {
+  const rtt = b - a;
+  const samples = [...(clock ? clock.samples : []), { rtt, offset: s.now - (a + rtt / 2) }].slice(-10);
+  const best = samples.reduce((x, y) => (y.rtt < x.rtt ? y : x));
+  clock = { samples, offset: best.offset, t0: s.t0, durationMs: s.durationMs, gapMs: s.gapMs || 0, stopped: s.stopped };
+}
+function previewTick() {
+  if (!clock || !clock.durationMs) return;
+  const C = (clock.durationMs + clock.gapMs) / 1000;
+  const now = performance.now() + clock.offset;
+  const target = (((now - clock.t0) / 1000) % C + C) % C;
+  document.querySelectorAll('.pv video').forEach((v) => {
+    const D = Math.min(v.duration || Infinity, clock.durationMs / 1000);
+    const show = v.getAttribute('src') && !clock.stopped && now >= clock.t0 && target < D;
+    v.style.visibility = show ? 'visible' : 'hidden';
+    if (!show) { if (!v.paused) v.pause(); return; }
+    if (v.readyState < 1) return;
+    if (v.paused) v.play().catch(() => {});
+    if (!v.seeking && Math.abs(v.currentTime - target) > 0.3 && performance.now() - (v.lastSeek || 0) > 1000) {
+      v.currentTime = target;
+      v.lastSeek = performance.now();
+    }
+  });
+}
+setInterval(previewTick, 100);
+
+// ---------- Logs ----------
+let lastLogKey = '';
+function renderLogs(list) {
+  if ($('logView').value !== 'live') return;   // an archive file is being displayed
+  const key = list.length + ':' + (list.length ? list[list.length - 1].t : 0);
+  if (key === lastLogKey) return;
+  lastLogKey = key;
+  const box = $('logs');
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
+  box.innerHTML = list.map((l) => `<div><span class="t">${new Date(l.t).toLocaleTimeString('en-GB')}</span>${esc(l.msg)}</div>`).join('')
+    || '<span class="dim">No logs yet</span>';
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+// Archive: daily files in logs/ on the server
+async function loadLogFiles() {
+  try {
+    const files = await (await fetch('/api/logs', { cache: 'no-store' })).json();
+    const sel = $('logView'), cur = sel.value;
+    sel.innerHTML = '<option value="live">Live (latest 150)</option>' +
+      files.map((f) => `<option value="${f.name}">${f.name.replace('.log', '')} (${f.size < 1024 ? f.size + ' B' : (f.size / 1024).toFixed(0) + ' KB'})</option>`).join('');
+    sel.value = files.some((f) => f.name === cur) ? cur : 'live';
+  } catch {}
+}
+async function showLogView() {
+  const v = $('logView').value, box = $('logs');
+  $('logDl').style.display = v === 'live' ? 'none' : '';
+  if (v === 'live') { lastLogKey = ''; return; }   // the next refresh redraws the live view
+  $('logDl').href = `/api/logs/file?name=${v}`;
+  $('logDl').setAttribute('download', v);
+  box.textContent = 'Loading…';
+  try {
+    const text = await (await fetch(`/api/logs/file?name=${v}`, { cache: 'no-store' })).text();
+    if ($('logView').value !== v) return;
+    box.innerHTML = text.split('\n').filter(Boolean).map((l) => {
+      const i = l.indexOf('  ');   // "YYYY-MM-DD HH:MM:SS.mmm  message"
+      return `<div><span class="t">${esc(l.slice(0, i))}</span>${esc(l.slice(i + 2))}</div>`;
+    }).join('') || '<span class="dim">Empty file</span>';
+    box.scrollTop = box.scrollHeight;
+  } catch { box.textContent = 'Could not load this file.'; }
+}
+$('logView').addEventListener('change', showLogView);
+$('logView').addEventListener('focus', loadLogFiles);
+loadLogFiles();
+setInterval(loadLogFiles, 30000);
+
+// ---------- Refresh ----------
+async function refresh() {
+  try {
+    const a = performance.now();
+    const s = await (await fetch('/api/status', { cache: 'no-store' })).json();
+    updateClock(s, a, performance.now());
+    $('next').textContent = s.stopped ? '⏹ STOPPED'
+      : !s.smokeEnabled ? 'deactivated'
+      : s.nextSmokeInMs == null ? 'video duration unknown' : (s.nextSmokeInMs / 1000).toFixed(1) + ' s';
+    $('stop').style.display = s.stopped ? 'none' : '';
+    $('play').style.display = s.stopped ? '' : 'none';
+    $('info').textContent = s.stopped ? '⏹ STOPPED – black screens' + (s.schedule.enabled && !s.schedule.inWindow ? ' (outside schedule)' : '') : '';
+    if (!recently('smoke') && document.activeElement !== $('smokeAt') && document.activeElement !== $('smokeDur')) {
+      $('smokeAt').value = s.smokeAtSec;
+      $('smokeDur').value = s.smokeDurationSec;
+    }
+    smokeEnabled = s.smokeEnabled;
+    $('smokeInputs').classList.toggle('off', !smokeEnabled);
+    $('smokeToggle').textContent = smokeEnabled ? 'Deactivate smoke' : 'Activate smoke';
+    $('smokeToggle').style.background = smokeEnabled ? '' : '#2a7';
+    $('smokeTest').disabled = !smokeEnabled;
+    $('smokeTest').classList.toggle('off', !smokeEnabled);
+    $('smokeTest').style.background = s.smokeActive ? '#2a7' : '';   // green while the smoke is running
+    const sc = s.schedule;
+    if (!schedDirty && !recently('sch') && !$('schedDays').contains(document.activeElement) && JSON.stringify(sc.days) !== JSON.stringify(schedule.days)) {
+      schedule.days = sc.days; renderSchedule();
+    }
+    schedule.enabled = sc.enabled;
+    $('schedToggle').textContent = sc.enabled ? 'Disable schedule' : 'Enable schedule';
+    $('schedToggle').style.background = sc.enabled ? '' : '#2a7';
+    $('schedDays').classList.toggle('off', !sc.enabled);
+    $('schedStatus').innerHTML = !sc.enabled ? '<span class="dim">● Schedule disabled: the system is controlled by hand only</span>'
+      : sc.inWindow ? `<span class="ok">● Inside a time window, ends ${gmtWhen(sc.nextEndAt)}</span>`
+      : sc.override ? `<span class="warn">● Outside the schedule, resumed by hand: stops at the end of the next window (${sc.nextEndAt ? gmtWhen(sc.nextEndAt) : 'none planned'})</span>`
+      : `<span class="bad">● Outside the schedule: stopped. ${sc.nextStartAt ? 'Next window starts ' + gmtWhen(sc.nextStartAt) : 'No time window planned'}</span>`;
+    const m = s.machine;
+    $('machineLink').innerHTML = m.mode !== 'http' ? '<span class="dim">● No smoke machine connected (log mode: smoke is only written to the logs)</span>'
+      : m.reachable === null ? '<span class="dim">● Checking the smoke machine link…</span>'
+      : m.reachable ? `<span class="ok">● Smoke machine link OK (${esc(m.target)})</span>`
+      : `<span class="bad">● No response from the smoke machine (${esc(m.target)})</span>`;
+    renderLogs(s.logs);
+    const changed = JSON.stringify(s.videos) !== JSON.stringify(videos);
+    videos = s.videos;
+    if (changed) renderVideos();
+    renderPhones(s.phones);
+  } catch { $('next').textContent = 'server unreachable'; }
+}
+refresh();
+setInterval(refresh, 500);
+</script>
+</body>
+</html>

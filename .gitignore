@@ -1,0 +1,5 @@
+﻿video/*.mp4
+video/**/*.mp4
+logs/
+state.json
+node_modules/
