@@ -310,7 +310,7 @@ const server = http.createServer(async (req, res) => {
         sound: url.searchParams.get('sound') === '1',
         rttMs: url.searchParams.has('rtt') ? Number(url.searchParams.get('rtt')) : null,
       });
-      if (isNew) { log(`Screen connected: ${id}`); online.set(id, true); }
+      if (isNew) { log(`Screen connected: ${id}`); online.set(id, true); updateDuration(); }
       // Each screen reports the exact duration of its video (learned again after a server restart)
       const vn = url.searchParams.get('vn'), vd = Number(url.searchParams.get('vd'));
       if (vn && vd > 0 && durations.get(vn) !== Math.round(vd)) {
