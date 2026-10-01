@@ -446,7 +446,9 @@ const server = http.createServer(async (req, res) => {
   }
 
   // DMX interface settings (Smoke machine tab). Saved only: the server does not send DMX yet.
-  // { interface: '' | 'dmxking-max' | 'enttec-open', channel, onValue, offValue, port, refreshHz, universe }
+  // { interface: '' | 'dmxking-max' | 'enttec-open', channel, onValue, offValue, port, refreshHz }
+  // ultraDMX MAX: one DMX port (set to DMX-OUT with the eDMX MAX utility), virtual COM port, frame rate set in the device.
+  // ENTTEC Open DMX USB: bare FTDI, the host generates the frames, so refreshHz applies there only.
   if (url.pathname === '/api/dmx-config' && req.method === 'POST') {
     const b = await readBody(req);
     const bad = (m) => { res.writeHead(400); return res.end(m); };
@@ -457,13 +459,12 @@ const server = http.createServer(async (req, res) => {
     } else {
       const int = (v, lo, hi) => { const n = Number(v); return v !== '' && v !== null && Number.isInteger(n) && n >= lo && n <= hi ? n : null; };
       const cfg = { interface: iface, channel: int(b.channel, 1, 512), onValue: int(b.onValue, 0, 255), offValue: int(b.offValue, 0, 255),
-        refreshHz: int(b.refreshHz, 1, 44), universe: int(b.universe, 1, 64), port: String(b.port || '').trim() };
+        refreshHz: iface === 'enttec-open' ? int(b.refreshHz, 1, 44) : (state.dmx && state.dmx.refreshHz) || 40, port: String(b.port || '').trim() };
       if (cfg.channel === null) return bad('DMX channel must be between 1 and 512');
       if (cfg.onValue === null) return bad('ON value must be between 0 and 255');
       if (cfg.offValue === null) return bad('OFF value must be between 0 and 255');
       if (cfg.refreshHz === null) return bad('Refresh rate must be between 1 and 44 Hz');
-      if (cfg.universe === null) return bad('Universe must be between 1 and 64');
-      if (!/^[\w./:-]{1,60}$/.test(cfg.port)) return bad('Serial port looks invalid (example: /dev/ttyUSB0)');
+      if (!/^[\w./:-]{1,60}$/.test(cfg.port)) return bad('Serial port looks invalid (example: /dev/ttyACM0)');
       state.dmx = cfg;
     }
     saveState();

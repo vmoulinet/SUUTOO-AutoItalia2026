@@ -156,13 +156,17 @@
   </div>
   <div id="dmxFields" style="display:none; margin-top:10px">
     <div class="row"><label style="width:120px">Serial port</label><input id="dmxPort" type="text" placeholder="/dev/ttyUSB0" spellcheck="false" autocomplete="off"></div>
-    <div class="row" data-iface="dmxking-max"><label style="width:120px">Universe</label><input id="dmxUniverse" type="number" min="1" max="64" step="1"></div>
     <div class="row" data-iface="enttec-open"><label style="width:120px">Refresh rate (Hz)</label><input id="dmxHz" type="number" min="1" max="44" step="1"></div>
     <div class="row"><label style="width:120px">Smoke channel</label><input id="dmxChannel" type="number" min="1" max="512" step="1"></div>
     <div class="row"><label style="width:120px">ON value</label><input id="dmxOn" type="number" min="0" max="255" step="1"></div>
     <div class="row"><label style="width:120px">OFF value</label><input id="dmxOff" type="number" min="0" max="255" step="1"></div>
     <div class="status dim" data-iface="enttec-open">Bare USB-serial interface: the Pi generates the DMX signal itself.</div>
-    <div class="status dim" data-iface="dmxking-max">The interface generates the DMX signal itself.</div>
+    <div class="status dim" data-iface="dmxking-max">
+      One DMX port only. With the DMXking eDMX MAX configuration utility (v2.0+, firmware 4.5), set it to <b>DMX-OUT</b>.
+      It appears as a virtual serial port, usually <b>/dev/ttyACM0</b> on the Pi.<br>
+      Failsafe: by default the port <b>holds the last frame</b> if the USB link is lost, so smoke could stay on.
+      Set the failsafe to a snapshot with the smoke channel at its OFF value.
+    </div>
   </div>
   <div class="status" id="dmxMsg" style="margin-top:6px"></div>
   <div class="status dim" style="margin-top:6px">Settings are saved here; the server does not send DMX yet.</div>
@@ -316,8 +320,9 @@ for (const el of [$('smokeMin'), $('smokeSec'), $('smokeDur')]) {
 
 // ---------- DMX interface ----------
 // Pick an interface, then its fields appear below. Saved automatically, like the smoke timing.
-const DMX_DEFAULTS = { channel: 1, onValue: 255, offValue: 0, port: '/dev/ttyUSB0', refreshHz: 40, universe: 1 };
-const DMX_FIELDS = { port: 'dmxPort', universe: 'dmxUniverse', refreshHz: 'dmxHz', channel: 'dmxChannel', onValue: 'dmxOn', offValue: 'dmxOff' };
+const DMX_DEFAULTS = { channel: 1, onValue: 255, offValue: 0, refreshHz: 40 };
+const DMX_PORTS = { 'enttec-open': '/dev/ttyUSB0', 'dmxking-max': '/dev/ttyACM0' };   // FTDI serial vs virtual COM port (CDC)
+const DMX_FIELDS = { port: 'dmxPort', refreshHz: 'dmxHz', channel: 'dmxChannel', onValue: 'dmxOn', offValue: 'dmxOff' };
 let dmxTimer;
 function dmxShow(iface) {
   $('dmxFields').style.display = iface ? '' : 'none';
@@ -325,6 +330,7 @@ function dmxShow(iface) {
 }
 function dmxFill(cfg) {
   const c = { ...DMX_DEFAULTS, ...(cfg || {}) };
+  if (!c.port) c.port = DMX_PORTS[c.interface] || '/dev/ttyUSB0';
   $('dmxIface').value = c.interface || '';
   for (const [k, id] of Object.entries(DMX_FIELDS)) $(id).value = c[k];
   dmxShow(c.interface || '');
@@ -340,7 +346,14 @@ async function saveDmx() {
     refresh();
   } catch (e) { $('dmxMsg').innerHTML = `<span class="bad">Not saved: ${esc(e.message)}</span>`; }
 }
-$('dmxIface').addEventListener('change', () => { editedAt.dmx = Date.now(); dmxShow($('dmxIface').value); saveDmx(); });
+$('dmxIface').addEventListener('change', () => {
+  editedAt.dmx = Date.now();
+  const iface = $('dmxIface').value, port = $('dmxPort').value.trim();
+  // Still on the default port of the other interface (or empty): switch to the default of the new one
+  if (iface && (!port || Object.values(DMX_PORTS).includes(port))) $('dmxPort').value = DMX_PORTS[iface];
+  dmxShow(iface);
+  saveDmx();
+});
 for (const id of Object.values(DMX_FIELDS)) {
   const el = $(id);
   el.addEventListener('input', () => { editedAt.dmx = Date.now(); clearTimeout(dmxTimer); dmxTimer = setTimeout(saveDmx, 1000); });
