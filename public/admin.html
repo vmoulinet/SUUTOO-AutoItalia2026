@@ -94,9 +94,11 @@
     <div>Next smoke in<div class="big" id="next">–</div></div>
     <div class="row" style="margin-top:10px">
       <label style="width:auto">Trigger at</label>
-      <input id="smokeAt" type="number" min="0" step="0.1" style="max-width:120px">
-      <span style="flex:none">seconds into the video, during</span>
-      <input id="smokeDur" type="number" min="0.1" max="300" step="0.1" style="max-width:80px">
+      <input id="smokeMin" type="number" min="0" step="1" placeholder="mm" style="width:4.5em;flex:none">
+      <span style="flex:none">:</span>
+      <input id="smokeSec" type="number" min="0" max="59" step="1" placeholder="ss" style="width:4.5em;flex:none">
+      <span style="flex:none">into the video, during</span>
+      <input id="smokeDur" type="number" min="1" max="99" step="1" style="width:4.5em;flex:none">
       <span style="flex:none">seconds</span>
     </div>
   </div>
@@ -240,12 +242,13 @@ setInterval(() => { $('gmtClock').textContent = gmt(Date.now(), { weekday: 'shor
 function saveSmoke() {
   clearTimeout(smokeTimer);
   editedAt.smoke = 0;
-  const at = $('smokeAt').value.trim(), d = Number($('smokeDur').value);
-  if (at === '' || !(Number(at) >= 0) || !(d > 0)) return refresh();   // invalid: the fields go back to the current values
-  post('/api/smoke-time', { atSec: Number(at), durationSec: d });
+  const m = $('smokeMin').value.trim(), sec = $('smokeSec').value.trim(), d = Number($('smokeDur').value);
+  const at = Number(m || 0) * 60 + Number(sec || 0);
+  if ((m === '' && sec === '') || !(at >= 0) || !(d > 0)) return refresh();   // invalid: the fields go back to the current values
+  post('/api/smoke-time', { atSec: at, durationSec: d });
 }
 let smokeTimer;
-for (const el of [$('smokeAt'), $('smokeDur')]) {
+for (const el of [$('smokeMin'), $('smokeSec'), $('smokeDur')]) {
   el.addEventListener('input', () => { editedAt.smoke = Date.now(); clearTimeout(smokeTimer); smokeTimer = setTimeout(saveSmoke, 1000); });
   el.addEventListener('change', saveSmoke);
   el.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSmoke(); });
@@ -464,8 +467,9 @@ async function refresh() {
     $('stop').style.display = s.stopped ? 'none' : '';
     $('play').style.display = s.stopped ? '' : 'none';
     $('info').textContent = s.stopped ? '⏹ STOPPED – black screens' + (s.schedule.enabled && !s.schedule.inWindow ? ' (outside schedule)' : '') : '';
-    if (!recently('smoke') && document.activeElement !== $('smokeAt') && document.activeElement !== $('smokeDur')) {
-      $('smokeAt').value = s.smokeAtSec;
+    if (!recently('smoke') && ![$('smokeMin'), $('smokeSec'), $('smokeDur')].includes(document.activeElement)) {
+      $('smokeMin').value = Math.floor(s.smokeAtSec / 60);
+      $('smokeSec').value = Math.round(s.smokeAtSec % 60);
       $('smokeDur').value = s.smokeDurationSec;
     }
     smokeEnabled = s.smokeEnabled;
