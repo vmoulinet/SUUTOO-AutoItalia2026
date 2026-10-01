@@ -473,7 +473,9 @@ const server = http.createServer(async (req, res) => {
         if (err) { fs.unlink(tmp, () => {}); res.writeHead(500); return res.end('cannot rename file'); }
         state.slots[slot] = { label };
         saveState();
-        durations.delete(name);   // affected screens reload and report the new duration
+        durations.delete(name);   // affected screens reload and report the exact duration
+        probeDuration(listVideos().find((v) => v.name === name));
+        updateDuration();
         log(`Video ${slot} replaced: ${label}`);
         json(res, { ok: true });
       });
@@ -520,10 +522,53 @@ const server = http.createServer(async (req, res) => {
   res.end('Not found');
 });
 
+// Duration of an MP4 read from its header (moov > mvhd box), so the cycle length is known
+// even before a screen has finished downloading the video. Screens report the exact value later.
+function mp4DurationMs(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const head = Buffer.alloc(16);
+    for (let pos = 0; pos + 8 <= size;) {
+      fs.readSync(fd, head, 0, 16, pos);
+      let boxSize = head.readUInt32BE(0), hdr = 8;
+      if (boxSize === 1) { boxSize = Number(head.readBigUInt64BE(8)); hdr = 16; }
+      else if (boxSize === 0) boxSize = size - pos;
+      if (boxSize < hdr) return null;
+      if (head.toString('latin1', 4, 8) === 'moov') {
+        if (boxSize > 64 * 1048576) return null;
+        const moov = Buffer.alloc(boxSize - hdr);
+        fs.readSync(fd, moov, 0, moov.length, pos + hdr);
+        for (let p = 0; p + 8 <= moov.length;) {
+          const s = moov.readUInt32BE(p);
+          if (s < 8) return null;
+          if (moov.toString('latin1', p + 4, p + 8) === 'mvhd') {
+            const v1 = moov[p + 8] === 1;
+            const timescale = moov.readUInt32BE(p + (v1 ? 28 : 20));
+            const duration = v1 ? Number(moov.readBigUInt64BE(p + 32)) : moov.readUInt32BE(p + 24);
+            return timescale > 0 && duration > 0 ? Math.round((duration / timescale) * 1000) : null;
+          }
+          p += s;
+        }
+        return null;
+      }
+      pos += boxSize;
+    }
+  } catch {} finally { if (fd !== undefined) fs.closeSync(fd); }
+  return null;
+}
+function probeDuration(v) {
+  if (!v || durations.has(v.name)) return;
+  const ms = mp4DurationMs(path.join(VIDEO_DIR, v.name));
+  if (ms) { durations.set(v.name, ms); log(`Video ${v.slot} duration read from the file: ${(ms / 1000).toFixed(3)} s`); }
+}
+
 // Durations learned in a previous run (only if the file has not changed since)
 for (const v of listVideos()) {
   const d = state.durations[v.name];
   if (d && d.version === v.version) durations.set(v.name, d.ms);
+  else probeDuration(v);
 }
 updateDuration();
 

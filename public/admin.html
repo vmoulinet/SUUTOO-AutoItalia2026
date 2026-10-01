@@ -49,25 +49,21 @@
   .pv video { width: 100%; height: 100%; object-fit: cover; display: block; }
   .pv.offline { opacity: .4; }
   /* Server stopped: everything is greyed out except the server bar */
-  body.down > *:not(#serverBar):not(script) { opacity: .3; filter: grayscale(1); pointer-events: none; }
-  #serverBar { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
-  #serverBar button { margin: 0; }
-  #serverBar button.start { background: #2a7; }
+  body.down > *:not(#topbar):not(script), body.down #topbar > button:not(#serverBtn) { opacity: .3; filter: grayscale(1); pointer-events: none; }
+  #serverBtn.start { background: #2a7; }
 </style>
 </head>
 <body>
 <h1>Expo control panel</h1>
 <p id="info" class="bad" style="margin:0 0 10px"></p>
-<p>
-  <button id="stop" class="smoke" onclick="confirm('Stop the video? All screens go black, no more smoke.') && post('/api/stop')">⏹ Stop loop</button>
-  <button id="play" onclick="post('/api/restart')" style="display:none; background:#2a7">▶ Resume video</button>
+<p id="topbar">
+  <button id="stop" class="smoke" onclick="confirm('Stop the loop? All screens go black, no more smoke.') && post('/api/stop')">⏹ Stop loop</button>
+  <button id="play" onclick="post('/api/restart')" style="display:none; background:#2a7">▶ Resume loop</button>
   <button onclick="confirm('Restart the video from the beginning on all screens?') && post('/api/restart')">↺ Restart loop</button>
   <button onclick="confirm('Reload the page on all screens?') && post('/api/reload')">⟳ Reload screens</button>
-</p>
-<div id="serverBar" style="display:none">
-  <button id="serverBtn" onclick="serverAction()"></button>
+  <button id="serverBtn" onclick="serverAction()" style="display:none"></button>
   <span id="serverMsg" class="status"></span>
-</div>
+</p>
 
 <nav id="tabs">
   <button data-tab="screens">Screens</button>
@@ -118,7 +114,7 @@
   <div class="status" id="schedStatus" style="margin:6px 0 12px"></div>
   <div id="schedDays"></div>
   <div class="status bad" id="schedErr"></div>
-  <div class="status dim" style="margin-top:8px">The system only runs inside these time windows. Outside them it is stopped, unless you press "Resume video": it then runs until the end of the next window.</div>
+  <div class="status dim" style="margin-top:8px">The system only runs inside these time windows. Outside them it is stopped, unless you press "Resume loop": it then runs until the end of the next window.</div>
 </div>
 </section>
 
@@ -156,7 +152,6 @@ const CONTROL = 'http://localhost:8081';
 let serverDown = false, failCount = 0, startTimer;
 
 function renderServerBar() {
-  $('serverBar').style.display = isKiosk || serverDown ? '' : 'none';
   const b = $('serverBtn');
   b.style.display = isKiosk ? '' : 'none';
   b.textContent = serverDown ? '▶ Start server' : '⏻ Stop server';
@@ -234,6 +229,7 @@ $('schedDays').addEventListener('click', (e) => {
   if (e.target.closest('.add')) { (schedule.days[day] = schedule.days[day] || []).push({ start: '09:00', end: '18:00' }); renderSchedule(); saveSchedule(); }
   else if (e.target.closest('.x')) { schedule.days[day].splice(Number(e.target.closest('.range').dataset.i), 1); renderSchedule(); saveSchedule(); }
 });
+renderSchedule();   // initial render: refresh() only re-renders when the server's days differ from the local ones
 setInterval(() => { $('gmtClock').textContent = gmt(Date.now(), { weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' }); }, 1000);
 
 // ---------- Smoke ----------
