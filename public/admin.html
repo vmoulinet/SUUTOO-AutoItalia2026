@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Auto Italia, SUUTOO network admin</title>
 <style>
-  body { font: 15px -apple-system, system-ui, sans-serif; background: #111; color: #eee; margin: 0; padding: 16px; max-width: 760px; }
+  body { font: 15px -apple-system, system-ui, sans-serif; background: #111; color: #eee; margin: 0; padding: 16px; max-width: 760px; margin: 0 auto; }
   :root { color-scheme: dark; }
   h1 { font: 700 22px/1.2 "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: -0.01em; }
   h2 { font-size: 16px; margin: 28px 0 8px; color: #aaa; font-weight: 600; }
@@ -605,7 +605,8 @@ function renderVideos(force) {
     const title = !v ? `Video ${n} <span class="dim">(empty)</span>`
       : renamingSlot === n ? `<span class="vname">Video ${n} – <input id="renameInput" class="rename" maxlength="80" placeholder="Title" value="${esc(v.label || '')}" onkeydown="renameKey(event, ${n})" onblur="renameSave(${n})"></span>`
       : `${esc(vidLabel(v))} <button class="small ghost" title="Rename" onclick="renameVideo(${n})">${PENCIL}</button>`;
-    const when = v ? `<div class="dim vcheck">Uploaded ${uploadedText(v.uploadedAt)}${v.convertedAt ? ` · converted ${uploadedText(v.convertedAt)}` : ''}</div>` : '';
+    const when = v ? `<div class="dim vcheck">Uploaded ${uploadedText(v.uploadedAt)}</div>` : '';
+    const stats = r && r.summary ? `<div class="dim vcheck">${esc(r.summary)}</div>` : '';   // right under the date
     const cv = v && v.convert;
     const fixable = !!(r && r.issues.some((i) => i.fix !== false));
     const conv = !v ? ''
@@ -616,9 +617,9 @@ function renderVideos(force) {
       : fixable && canConvert ? `<div class="vconv"><button class="small" onclick="convertStart(${n})">⚙ Convert</button></div>` : '';
     const check = !r ? '' : `<div class="vcheck">${
       r.issues.length ? r.issues.map((i) => `<div class="${i.level === 'error' ? 'bad' : 'warn'}">${i.level === 'error' ? '✗' : '⚠'} ${esc(i.msg)}</div>`).join('')
-        : '<div class="ok">✓ Meets the specs</div>'}${r.summary ? `<div class="dim">${esc(r.summary)}</div>` : ''}</div>`;
+        : '<div class="ok">✓ Meets the specs</div>'}</div>`;
     return `<tr><td class="vth">${v ? thumbHtml(v) : ''}</td>
-      <td>${title}${when}${check}${conv}</td>
+      <td>${title}${when}${stats}${check}${conv}</td>
       <td class="r dim">${v ? mb(v.size) : ''}</td>
       <td class="r"><button class="small" title="Import a video" onclick="pickVideo(${n})">${ICON}</button></td></tr>`;
   }).join('');
