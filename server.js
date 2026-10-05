@@ -10,6 +10,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { analyze } = require('./videocheck');
 const { execFile } = require('child_process');
 
 const ROOT = __dirname;
@@ -189,6 +190,28 @@ function listVideos() {
       return { slot, name, label, size: st.size, version: Math.round(st.mtimeMs) };
     } catch { return null; }
   }).filter(Boolean);
+}
+
+// Spec check of each video (videocheck.js), kept per file version so it is only computed once
+const reports = new Map();
+function reportFor(v) {
+  const c = reports.get(v.name);
+  if (c && c.version === v.version) return c.report;
+  const report = analyze(path.join(VIDEO_DIR, v.name));
+  reports.set(v.name, { version: v.version, report });
+  return report;
+}
+// What the control panel shows under each video: the file checks, plus a comparison with the other videos
+function videosWithReports() {
+  const vids = listVideos();
+  const longest = Math.max(0, ...vids.map((v) => durations.get(v.name) || 0));
+  return vids.map((v) => {
+    const base = reportFor(v), issues = base.issues.slice(), d = durations.get(v.name);
+    if (d && longest - d > 1000) {
+      issues.push({ level: 'warn', msg: `Shorter than the longest video (${Math.round(d / 1000)} s instead of ${Math.round(longest / 1000)} s): if both play together, this screen goes black for the rest of each cycle.` });
+    }
+    return { ...v, report: { summary: base.summary, issues } };
+  });
 }
 
 // Video of a screen: the one assigned to it, else the config default, else the first one.
@@ -393,7 +416,7 @@ const server = http.createServer(async (req, res) => {
       dmx: state.dmx || null,
       smokeAtSec: state.smokeAtSec, smokeEnabled: state.smokeEnabled, smokeDurationSec: smokeDurationMs() / 1000,
       smokeActive: Date.now() < smokeActiveUntil, urls: accessUrls(), wifi: (refreshWifiName(), wifiName),
-      schedule: { ...state.schedule, ...scheduleInfo(), override: scheduleOverride, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, machine, logs: logs.slice(-150), videos: listVideos(), phones,
+      schedule: { ...state.schedule, ...scheduleInfo(), override: scheduleOverride, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, machine, logs: logs.slice(-150), videos: videosWithReports(), phones,
     });
   }
 
@@ -543,8 +566,11 @@ const server = http.createServer(async (req, res) => {
         durations.delete(name);   // affected screens reload and report the exact duration
         probeDuration(listVideos().find((v) => v.name === name));
         updateDuration();
+        reports.delete(name);
+        const report = videosWithReports().find((v) => v.name === name).report;   // spec check of the new file
         log(`Video ${slot} replaced: ${label}`);
-        json(res, { ok: true });
+        if (report.issues.length) log(`Video ${slot} check: ${report.issues.length} problem(s)`);
+        json(res, { ok: true, report });
       });
     });
     return req.pipe(out);
