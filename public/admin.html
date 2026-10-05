@@ -17,6 +17,7 @@
   input, select { font: inherit; background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 6px 8px; }
   input[type=range] { padding: 0; width: 100%; accent-color: #4a9; }
   .card { background: #1a1a1a; border: 1px solid #2c2c2c; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .row > a.dl, a.dl { flex: none; min-width: 0; background: #2a7; color: #fff; text-decoration: none; padding: 10px 16px; border-radius: 6px; white-space: nowrap; }
   td.vth { width: 56px; padding-right: 8px; vertical-align: top; }
   .vthumb { display: block; width: 54px; height: 96px; object-fit: cover; border-radius: 4px; background: #000; }
   .vthumb.ph { display: flex; align-items: center; justify-content: center; color: #666; border: 1px solid #333; box-sizing: border-box; }
@@ -125,6 +126,18 @@
   <table id="videos"></table>
   <progress id="prog" max="100" value="0" style="display:none; margin-top:8px"></progress>
   <div class="status" id="upStatus"></div>
+</div>
+<div class="card" id="toolCard">
+  <div class="row" style="flex-wrap: nowrap">
+    <div style="flex: 1">
+      <b>Conversion tool</b> <span class="dim">(Windows and Mac)</span>
+      <div class="status dim" style="margin-top: 4px">
+        Turns any video into the right format: H.264, 720×1280, 30 fps, AAC, under 140 MB.
+        Unzip it, double-click it, pick your video, then import the result above.
+      </div>
+    </div>
+    <a class="dl" href="/tools/SUUTOO-converter.zip" download>⬇ Download</a>
+  </div>
 </div>
 </section>
 

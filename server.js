@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { analyze } = require('./videocheck');
+const { zip } = require('./zipper');
 const { execFile } = require('child_process');
 
 const ROOT = __dirname;
@@ -344,6 +345,22 @@ function sendFile(req, res, file, cache) {
   });
 }
 
+// The conversion tool (tools/): zipped on the fly. .bat gets Windows line endings, .command Unix ones and the
+// executable bit, so both work after unzipping on their own system.
+const TOOL_FILES = [['convert-windows.bat', 0o644, 'crlf'], ['convert-mac.command', 0o755, 'lf'], ['README.txt', 0o644, 'crlf']];
+function sendConverterZip(res) {
+  try {
+    const files = TOOL_FILES.map(([name, mode, eol]) => {
+      let text = fs.readFileSync(path.join(ROOT, 'tools', name), 'utf8').replace(/\r\n/g, '\n');
+      if (eol === 'crlf') text = text.replace(/\n/g, '\r\n');
+      return { name: `SUUTOO-converter/${name}`, data: Buffer.from(text, 'utf8'), mode };
+    });
+    const body = zip(files);
+    res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="SUUTOO-converter.zip"', 'Content-Length': body.length, 'Cache-Control': 'no-cache' });
+    res.end(body);
+  } catch { res.writeHead(404); res.end('Converter files not found'); }
+}
+
 function readBody(req) {
   return new Promise((resolve) => {
     let data = '';
@@ -614,6 +631,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/icons/') && url.pathname.endsWith('.png')) {   // app icons (home screen / install)
     return sendFile(req, res, path.join(ROOT, 'public/icons', path.basename(url.pathname)), true);
   }
+  if (url.pathname === '/tools/SUUTOO-converter.zip') return sendConverterZip(res);   // conversion tool for PC and Mac
   if (url.pathname === '/qrcode.js') return sendFile(req, res, path.join(ROOT, 'public/qrcode.js'));   // QR code generator (MIT), used by the control panel
 
   res.writeHead(404);
