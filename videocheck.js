@@ -50,7 +50,7 @@ const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padSt
 
 function analyze(file) {
   const issues = [];
-  const add = (level, msg) => issues.push({ level, msg });
+  const add = (level, msg, fix = true) => issues.push(fix ? { level, msg } : { level, msg, fix: false });
   const info = {};
   let fd;
   try {
@@ -74,7 +74,7 @@ function analyze(file) {
       pos += boxSize;
     }
     if (!moovBox || moovBox.size > 64 * 1048576) {
-      add('error', 'Not a valid MP4/MOV file: its structure could not be read (wrong format or corrupted file).');
+      add('error', 'Not a valid MP4/MOV file', false);
       return { summary: '', issues };
     }
     const moov = Buffer.alloc(moovBox.size - moovBox.hdr);
@@ -159,37 +159,35 @@ function analyze(file) {
     }
 
     // ----- Verdict
-    if (brand === 'qt  ') add('warn', 'QuickTime (.mov) container: it is stored as .mp4 without conversion. Re-export it as MP4.');
+    // Short messages on purpose: "what is wrong (what to use)". fix=false: a conversion cannot repair it.
+    if (brand === 'qt  ') add('warn', 'QuickTime container (use MP4)');
     if (!video) {
-      add('error', 'No video track found.');
+      add('error', 'No video track', false);
     } else {
       const codec = VIDEO_CODECS[video.fourcc] || video.fourcc;
       info.codec = codec;
-      if (codec !== 'H.264') add('error', `Video codec is ${codec}: use H.264 (AVC). Many phones cannot play it.`);
+      if (codec !== 'H.264') add('error', `Video is ${codec} (use H.264)`);
       else {
-        if (video.profile && !OK_H264_PROFILES.has(video.profile)) add('error', `H.264 profile "${H264_PROFILES[video.profile] || video.profile}" (10-bit or 4:2:2/4:4:4): use an 8-bit 4:2:0 High or Main profile.`);
-        if (video.level > 41) add('warn', `H.264 level ${(video.level / 10).toFixed(1)}: some phones cannot decode above level 4.1.`);
+        if (video.profile && !OK_H264_PROFILES.has(video.profile)) add('error', `H.264 ${H264_PROFILES[video.profile] || video.profile} (use 8-bit High or Main)`);
+        if (video.level > 41) add('warn', `H.264 level ${(video.level / 10).toFixed(1)} (max 4.1)`);
       }
       const w = video.width, h = video.height;
-      if (video.rotation) add('warn', `Video stored with a ${video.rotation}° rotation flag (shown as ${w}×${h}). Re-export it without the flag to be safe.`);
-      if (Math.max(w, h) > 1920 || Math.min(w, h) > 1080) add('error', `Resolution ${w}×${h} is above 1920×1080. Re-encode at 1080×1920 or smaller (720×1280 is enough).`);
-      if (w > h) add('warn', `Landscape ${w}×${h}: the screens are portrait, so the image is cropped to fill them. Use a 9:16 portrait video.`);
-      else if (Math.abs(w / h - 9 / 16) > 0.04) add('warn', `Aspect ratio ${(w / h).toFixed(2)} is not 9:16: the image is cropped on the sides or top and bottom to fill the screens.`);
-      if (video.vfr) add('warn', 'Variable frame rate: convert it to a constant frame rate (30 fps) to keep the screens in sync.');
-      else if (video.fps > 60.5) add('warn', `Frame rate ${video.fps.toFixed(0)} fps is high: 30 fps is recommended.`);
-      if (video.keyframeGapS > MAX_KEYFRAME_GAP_S) add('warn', `Keyframes only every ${video.keyframeGapS.toFixed(1)} s (recommended: every 1 to 2 s). Screens take longer to resynchronise.`);
+      if (video.rotation) add('warn', `Rotation flag ${video.rotation}° (shown as ${w}×${h})`);
+      if (Math.max(w, h) > 1920 || Math.min(w, h) > 1080) add('error', `Resolution ${w}×${h} (max 1080×1920)`);
+      if (w > h) add('warn', `Landscape ${w}×${h} (use 9:16 portrait)`);
+      else if (Math.abs(w / h - 9 / 16) > 0.04) add('warn', `Ratio ${w}×${h} (use 9:16)`);
+      if (video.vfr) add('warn', 'Variable frame rate (use constant 30 fps)');
+      else if (video.fps > 60.5) add('warn', `${video.fps.toFixed(0)} fps (use 30)`);
+      if (video.keyframeGapS > MAX_KEYFRAME_GAP_S) add('warn', `Keyframes every ${video.keyframeGapS.toFixed(1)} s (use 1–2 s)`);
     }
-    if (!audio) add('warn', 'No audio track.');
+    if (!audio) add('warn', 'No audio', false);
     else {
-      if (audio.name !== 'AAC') add('error', `Audio codec is ${audio.name}: use AAC.`);
-      if (audio.sampleRate && audio.sampleRate !== 44100 && audio.sampleRate !== 48000) add('warn', `Audio sample rate is ${audio.sampleRate} Hz: use 44.1 or 48 kHz.`);
+      if (audio.name !== 'AAC') add('error', `Audio is ${audio.name} (use AAC)`);
+      if (audio.sampleRate && audio.sampleRate !== 44100 && audio.sampleRate !== 48000) add('warn', `Audio ${audio.sampleRate} Hz (use 44.1 or 48 kHz)`);
     }
-    if (moovAt > mdatAt && mdatAt >= 0) add('warn', 'Not optimised for streaming (index at the end of the file): the admin preview starts slowly. Re-export with "faststart" (ffmpeg -movflags +faststart).');
-    if (!durationS) add('warn', 'Duration could not be read.');
-    if (info.sizeMB > MAX_MB) {
-      const hint = durationS ? ` Lower the total bitrate to about ${Math.floor((MAX_MB * 1048576 * 8 * 0.95) / durationS / 1000)} kbit/s.` : '';
-      add('error', `File is ${info.sizeMB.toFixed(0)} MB, above the ${MAX_MB} MB limit: every phone keeps the whole video in memory and an iPhone may restart the page.${hint}`);
-    }
+    if (moovAt > mdatAt && mdatAt >= 0) add('warn', 'Not faststart (slow preview)');
+    if (!durationS) add('warn', 'Duration unreadable', false);
+    if (info.sizeMB > MAX_MB) add('error', `${info.sizeMB.toFixed(0)} MB (max ${MAX_MB} MB)`);
 
     // ----- One-line summary
     const parts = [];
@@ -200,7 +198,7 @@ function analyze(file) {
     issues.sort((x, y) => (x.level === y.level ? 0 : x.level === 'error' ? -1 : 1));
     return { summary: parts.filter(Boolean).join(' · '), issues };
   } catch (e) {
-    add('error', 'Could not analyse this file (unreadable or corrupted).');
+    add('error', 'Unreadable or corrupted file', false);
     return { summary: '', issues };
   } finally { if (fd !== undefined) fs.closeSync(fd); }
 }

@@ -17,6 +17,9 @@
   input, select { font: inherit; background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 6px 8px; }
   input[type=range] { padding: 0; width: 100%; accent-color: #4a9; }
   .card { background: #1a1a1a; border: 1px solid #2c2c2c; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .vconv { margin-top: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+  .vbar { width: 200px; max-width: 100%; height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
+  .vbar > div { height: 100%; background: #2a7; transition: width .4s linear; }
   button.ghost { background: none; color: #888; padding: 2px 6px; margin: 0 0 0 4px; vertical-align: middle; }
   button.ghost:hover { color: #ddd; }
   input.rename { width: 14em; max-width: 60vw; padding: 3px 6px; }
@@ -217,6 +220,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let videos = [];
+let videosSig = '', canConvert = false;
 let smokeEnabled = true;
 const editedAt = {};   // control id -> last local edit (avoids overwriting what is being edited)
 const recently = (k) => Date.now() - (editedAt[k] || 0) < 2500;
@@ -492,6 +496,26 @@ const PENCIL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stro
 const vidLabel = (v) => `Video ${v.slot}` + (v.label ? ` – ${v.label}` : '');
 const uploadedText = (ms) => new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
+// Conversion on the server (ffmpeg): the progress bar is updated in place, not by redrawing the list
+const convText = (cv) => `${cv.percent}%${cv.etaSec != null ? ` · ~${cv.etaSec >= 60 ? Math.ceil(cv.etaSec / 60) + ' min' : cv.etaSec + ' s'} left` : ''}`;
+function paintConvert() {
+  for (const v of videos) {
+    if (!v.convert || v.convert.state !== 'running') continue;
+    const bar = document.querySelector(`[data-bar="${v.slot}"]`), txt = document.querySelector(`[data-pct="${v.slot}"]`);
+    if (bar) bar.style.width = v.convert.percent + '%';
+    if (txt) txt.textContent = convText(v.convert);
+  }
+}
+async function convertStart(n) {
+  if (!confirm(`Convert video ${n}?\n\nThe converted file (H.264, 720×1280, 30 fps, under 140 MB) replaces the current one. It takes a few minutes. Screens using this video reload it when it is done.`)) return;
+  try { await api('/api/convert', { slot: n }); } catch (e) { alert(`Could not start the conversion: ${e.message}`); }
+  refresh();
+}
+async function convertCancel(n) {
+  try { await api('/api/convert-cancel', { slot: n }); } catch {}
+  refresh();
+}
+
 // Rename the title of a video (inline: Enter saves, Escape cancels). The list is not redrawn while editing.
 let renamingSlot = null;
 function renameVideo(n) {
@@ -581,12 +605,20 @@ function renderVideos(force) {
     const title = !v ? `Video ${n} <span class="dim">(empty)</span>`
       : renamingSlot === n ? `<span class="vname">Video ${n} – <input id="renameInput" class="rename" maxlength="80" placeholder="Title" value="${esc(v.label || '')}" onkeydown="renameKey(event, ${n})" onblur="renameSave(${n})"></span>`
       : `${esc(vidLabel(v))} <button class="small ghost" title="Rename" onclick="renameVideo(${n})">${PENCIL}</button>`;
-    const when = v ? `<div class="dim vcheck">Uploaded ${uploadedText(v.uploadedAt)}</div>` : '';
+    const when = v ? `<div class="dim vcheck">Uploaded ${uploadedText(v.uploadedAt)}${v.convertedAt ? ` · converted ${uploadedText(v.convertedAt)}` : ''}</div>` : '';
+    const cv = v && v.convert;
+    const fixable = !!(r && r.issues.some((i) => i.fix !== false));
+    const conv = !v ? ''
+      : cv && cv.state === 'running'
+        ? `<div class="vconv"><div class="vbar"><div data-bar="${n}" style="width:${cv.percent}%"></div></div><span class="dim" data-pct="${n}">${convText(cv)}</span><button class="small" onclick="convertCancel(${n})">Cancel</button></div>`
+      : cv && cv.state === 'error'
+        ? `<div class="vconv"><span class="bad">Conversion failed: ${esc(cv.error)}</span><button class="small" onclick="convertCancel(${n})">OK</button></div>`
+      : fixable && canConvert ? `<div class="vconv"><button class="small" onclick="convertStart(${n})">⚙ Convert</button></div>` : '';
     const check = !r ? '' : `<div class="vcheck">${
       r.issues.length ? r.issues.map((i) => `<div class="${i.level === 'error' ? 'bad' : 'warn'}">${i.level === 'error' ? '✗' : '⚠'} ${esc(i.msg)}</div>`).join('')
         : '<div class="ok">✓ Meets the specs</div>'}${r.summary ? `<div class="dim">${esc(r.summary)}</div>` : ''}</div>`;
     return `<tr><td class="vth">${v ? thumbHtml(v) : ''}</td>
-      <td>${title}${when}${check}</td>
+      <td>${title}${when}${check}${conv}</td>
       <td class="r dim">${v ? mb(v.size) : ''}</td>
       <td class="r"><button class="small" title="Import a video" onclick="pickVideo(${n})">${ICON}</button></td></tr>`;
   }).join('');
@@ -750,9 +782,14 @@ async function refresh() {
       : m.reachable ? `<span class="ok">● Smoke machine link OK (${esc(m.target)})</span>`
       : `<span class="bad">● No response from the smoke machine (${esc(m.target)})</span>`;
     renderLogs(s.logs);
-    const changed = JSON.stringify(s.videos) !== JSON.stringify(videos);
+    // Redraw the list only when something other than the conversion progress changed (keeps the buttons clickable)
+    const sig = JSON.stringify(s.videos.map((v) => ({ ...v, convert: v.convert ? { state: v.convert.state, error: v.convert.error } : null }))) + s.canConvert;
+    const changed = sig !== videosSig;
+    videosSig = sig;
     videos = s.videos;
+    canConvert = !!s.canConvert;
     if (changed) renderVideos();
+    paintConvert();
     currentWifi = s.wifi;
     renderJoin(s.urls, s.wifi);
     renderPhones(s.phones);

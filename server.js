@@ -11,7 +11,9 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { analyze } = require('./videocheck');
+const { pipeline } = require('stream');
 const { zip } = require('./zipper');
+const converter = require('./converter');
 const { execFile } = require('child_process');
 
 const ROOT = __dirname;
@@ -190,7 +192,8 @@ function listVideos() {
       const label = (state.slots[slot] && state.slots[slot].label) || '';
       // uploadedAt: when it was imported from the control panel (file date for videos copied by hand)
       const uploadedAt = (state.slots[slot] && state.slots[slot].uploadedAt) || Math.round(st.mtimeMs);
-      return { slot, name, label, size: st.size, version: Math.round(st.mtimeMs), uploadedAt };
+      const convertedAt = (state.slots[slot] && state.slots[slot].convertedAt) || null;
+      return { slot, name, label, size: st.size, version: Math.round(st.mtimeMs), uploadedAt, convertedAt };
     } catch { return null; }
   }).filter(Boolean);
 }
@@ -211,10 +214,29 @@ function videosWithReports() {
   return vids.map((v) => {
     const base = reportFor(v), issues = base.issues.slice(), d = durations.get(v.name);
     if (d && longest - d > 1000) {
-      issues.push({ level: 'warn', msg: `Shorter than the longest video (${Math.round(d / 1000)} s instead of ${Math.round(longest / 1000)} s): if both play together, this screen goes black for the rest of each cycle.` });
+      issues.push({ level: 'warn', msg: `Shorter than the longest video (${Math.round(d / 1000)} s vs ${Math.round(longest / 1000)} s)`, fix: false });
     }
-    return { ...v, report: { summary: base.summary, issues } };
+    return { ...v, report: { summary: base.summary, issues }, convert: converter.statusFor(v.slot) };
   });
+}
+
+// The converted file replaces the video of the slot. Screens notice the new file version and reload their video.
+async function finishConversion(slot, name, tmp) {
+  const dest = path.join(VIDEO_DIR, name);
+  for (let i = 0; ; i++) {
+    try { fs.renameSync(tmp, dest); break; }
+    catch (e) {   // Windows can keep the file locked for a moment while it is read: try again
+      if (i >= 20 || !['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) throw e;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+  state.slots[slot] = { ...(state.slots[slot] || {}), convertedAt: Date.now() };
+  saveState();
+  durations.delete(name);   // screens report the exact duration of the new file
+  reports.delete(name);
+  probeDuration(listVideos().find((v) => v.name === name));
+  updateDuration();
+  log(`Video ${slot} converted`);
 }
 
 // Video of a screen: the one assigned to it, else the config default, else the first one.
@@ -340,10 +362,10 @@ function sendFile(req, res, file, cache) {
       let end = m[1] && m[2] ? Math.min(Number(m[2]), st.size - 1) : st.size - 1;
       if (start > end || start >= st.size) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}` }); return res.end(); }
       res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${st.size}`, 'Content-Length': end - start + 1 });
-      return fs.createReadStream(file, { start, end }).pipe(res);
+      return pipeline(fs.createReadStream(file, { start, end }), res, () => {});   // pipeline closes the file if the browser stops reading
     }
     res.writeHead(200, { ...headers, 'Content-Length': st.size });
-    fs.createReadStream(file).pipe(res);
+    pipeline(fs.createReadStream(file), res, () => {});
   });
 }
 
@@ -435,7 +457,7 @@ const server = http.createServer(async (req, res) => {
       dmx: state.dmx || null,
       smokeAtSec: state.smokeAtSec, smokeEnabled: state.smokeEnabled, smokeDurationSec: smokeDurationMs() / 1000,
       smokeActive: Date.now() < smokeActiveUntil, urls: accessUrls(), wifi: (refreshWifiName(), wifiName),
-      schedule: { ...state.schedule, ...scheduleInfo(), override: scheduleOverride, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, machine, logs: logs.slice(-150), videos: videosWithReports(), phones,
+      schedule: { ...state.schedule, ...scheduleInfo(), override: scheduleOverride, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, machine, logs: logs.slice(-150), videos: videosWithReports(), canConvert: converter.available(), phones,
     });
   }
 
@@ -564,6 +586,25 @@ const server = http.createServer(async (req, res) => {
     return json(res, { ok: true });
   }
 
+  // Convert a video on the server (ffmpeg, in the background): { slot }. The converted file replaces the video.
+  if (url.pathname === '/api/convert' && req.method === 'POST') {
+    const slot = Number((await readBody(req)).slot);
+    const v = listVideos().find((x) => x.slot === slot);
+    if (!v) { res.writeHead(400); return res.end('no video in this slot'); }
+    const input = path.join(VIDEO_DIR, v.name);
+    const tmp = path.join(VIDEO_DIR, `.convert-${slot}.tmp.mp4`);
+    const err = converter.start({ slot, input, tmp, durationMs: durations.get(v.name) || mp4DurationMs(input), onDone: () => finishConversion(slot, v.name, tmp) });
+    if (err) { res.writeHead(409); return res.end(err); }
+    log(`Video ${slot}: conversion started`);
+    return json(res, { ok: true });
+  }
+  // Cancel a running conversion (or dismiss its error message): { slot }
+  if (url.pathname === '/api/convert-cancel' && req.method === 'POST') {
+    const slot = Number((await readBody(req)).slot);
+    if (converter.cancel(slot)) log(`Video ${slot}: conversion cancelled`);
+    return json(res, { ok: true });
+  }
+
   // Rename the title of a video (the file itself is untouched): { slot, label }
   if (url.pathname === '/api/video-label' && req.method === 'POST') {
     const b = await readBody(req);
@@ -582,6 +623,8 @@ const server = http.createServer(async (req, res) => {
     const label = path.basename(url.searchParams.get('label') || '').slice(0, 80);
     if (!SLOTS.includes(slot)) { res.writeHead(400); return res.end('invalid slot'); }
     if (!/\.(mp4|mov)$/i.test(label)) { res.writeHead(400); return res.end('The file must be a .mp4 or .mov'); }
+    const running = converter.statusFor(slot);
+    if (running && running.state === 'running') { res.writeHead(409); return res.end('A conversion is running on this video: cancel it first'); }
     const name = `slot-${slot}.mp4`;
     fs.mkdirSync(VIDEO_DIR, { recursive: true });
     const tmp = path.join(VIDEO_DIR, `.upload-${Date.now()}.tmp`);
@@ -694,6 +737,8 @@ function probeDuration(v) {
   if (ms) { durations.set(v.name, ms); log(`Video ${v.slot} duration read from the file: ${(ms / 1000).toFixed(3)} s`); }
 }
 
+converter.cleanTemp(VIDEO_DIR);   // half-converted files left by a crash
+
 // Durations learned in a previous run (only if the file has not changed since)
 for (const v of listVideos()) {
   const d = state.durations[v.name];
@@ -735,6 +780,7 @@ function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   log('Server stopping');
+  converter.cancelAll();
   cutSmoke();
   state.runtime = { t0, durationMs, reloadToken, stopped, scheduleOverride, clean: true, savedAt: Date.now() };
   try { fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2)); } catch {}
