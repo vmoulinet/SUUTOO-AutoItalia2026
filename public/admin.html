@@ -183,13 +183,6 @@
     <div class="row"><label style="width:120px">Smoke channel</label><input id="dmxChannel" type="number" min="1" max="512" step="1"></div>
     <div class="row"><label style="width:120px">ON value</label><input id="dmxOn" type="number" min="0" max="255" step="1"></div>
     <div class="row"><label style="width:120px">OFF value</label><input id="dmxOff" type="number" min="0" max="255" step="1"></div>
-    <div class="status dim" data-iface="enttec-open">Bare USB-serial interface: the Pi generates the DMX signal itself.</div>
-    <div class="status dim" data-iface="dmxking-max">
-      One DMX port only. With the DMXking eDMX MAX configuration utility (v2.0+, firmware 4.5), set it to <b>DMX-OUT</b>.
-      It appears as a virtual serial port, usually <b>/dev/ttyACM0</b> on the Pi.<br>
-      Failsafe: by default the port <b>holds the last frame</b> if the USB link is lost, so smoke could stay on.
-      Set the failsafe to a snapshot with the smoke channel at its OFF value.
-    </div>
   </div>
   <div class="status" id="dmxMsg" style="margin-top:6px"></div>
   <div class="status dim" style="margin-top:6px">Settings are saved here; the server does not send DMX yet.</div>
