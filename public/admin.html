@@ -17,6 +17,9 @@
   input, select { font: inherit; background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 6px 8px; }
   input[type=range] { padding: 0; width: 100%; accent-color: #4a9; }
   .card { background: #1a1a1a; border: 1px solid #2c2c2c; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  button.ghost { background: none; color: #888; padding: 2px 6px; margin: 0 0 0 4px; vertical-align: middle; }
+  button.ghost:hover { color: #ddd; }
+  input.rename { width: 14em; max-width: 60vw; padding: 3px 6px; }
   .row > a.dl, a.dl { flex: none; min-width: 0; background: #2a7; color: #fff; text-decoration: none; padding: 10px 16px; border-radius: 6px; white-space: nowrap; }
   td.vth { width: 56px; padding-right: 8px; vertical-align: top; }
   .vthumb { display: block; width: 54px; height: 96px; object-fit: cover; border-radius: 4px; background: #000; }
@@ -490,8 +493,36 @@ function renderPhones(list) {
 
 // ---------- Videos ----------
 const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
-const ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11M8 10l4 4 4-4M9 6H8a4 4 0 0 0-4 4v6a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-6a4 4 0 0 0-4-4h-1"/></svg>';
+// Import icon: a small cloud with an arrow going up
+const ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>';
+const PENCIL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>';
 const vidLabel = (v) => `Video ${v.slot}` + (v.label ? ` – ${v.label}` : '');
+const uploadedText = (ms) => new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+// Rename the title of a video (inline: Enter saves, Escape cancels). The list is not redrawn while editing.
+let renamingSlot = null;
+function renameVideo(n) {
+  renamingSlot = n;
+  renderVideos(true);
+  const i = $('renameInput');
+  if (i) { i.focus(); i.select(); }
+}
+function renameKey(e, n) {
+  if (e.key === 'Enter') { e.preventDefault(); renameSave(n); }
+  else if (e.key === 'Escape') { renamingSlot = null; renderVideos(true); }
+}
+async function renameSave(n) {
+  if (renamingSlot !== n) return;   // already saved or cancelled
+  const input = $('renameInput'), v = videos.find((x) => x.slot === n);
+  const label = input ? input.value.trim() : '';
+  renamingSlot = null;
+  if (v && label !== (v.label || '')) {
+    try { await api('/api/video-label', { slot: n, label }); }
+    catch (e) { alert(`Could not rename the video (${e.message})`); }
+  }
+  renderVideos(true);
+  refresh();
+}
 
 // Thumbnails: one frame of each video, taken in this browser (the video is streamed, only the part
 // needed to show that frame is downloaded). Kept in localStorage per file version, so they come back instantly.
@@ -549,15 +580,20 @@ function makeThumb(v) {
   });
 }
 
-function renderVideos() {
+function renderVideos(force) {
+  if (renamingSlot !== null && !force) return;   // do not wipe the title being edited
   $('videos').innerHTML = [1, 2, 3].map((n) => {
     const v = videos.find((x) => x.slot === n);
     const r = v && v.report;
+    const title = !v ? `Video ${n} <span class="dim">(empty)</span>`
+      : renamingSlot === n ? `<span class="vname">Video ${n} – <input id="renameInput" class="rename" maxlength="80" placeholder="Title" value="${esc(v.label || '')}" onkeydown="renameKey(event, ${n})" onblur="renameSave(${n})"></span>`
+      : `${esc(vidLabel(v))} <button class="small ghost" title="Rename" onclick="renameVideo(${n})">${PENCIL}</button>`;
+    const when = v ? `<div class="dim vcheck">Uploaded ${uploadedText(v.uploadedAt)}</div>` : '';
     const check = !r ? '' : `<div class="vcheck">${
       r.issues.length ? r.issues.map((i) => `<div class="${i.level === 'error' ? 'bad' : 'warn'}">${i.level === 'error' ? '✗' : '⚠'} ${esc(i.msg)}</div>`).join('')
         : '<div class="ok">✓ Meets the specs</div>'}${r.summary ? `<div class="dim">${esc(r.summary)}</div>` : ''}</div>`;
     return `<tr><td class="vth">${v ? thumbHtml(v) : ''}</td>
-      <td>${v ? esc(vidLabel(v)) : `Video ${n} <span class="dim">(empty)</span>`}${check}</td>
+      <td>${title}${when}${check}</td>
       <td class="r dim">${v ? mb(v.size) : ''}</td>
       <td class="r"><button class="small" title="Import a video" onclick="pickVideo(${n})">${ICON}</button></td></tr>`;
   }).join('');

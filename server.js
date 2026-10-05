@@ -188,7 +188,9 @@ function listVideos() {
     try {
       const st = fs.statSync(path.join(VIDEO_DIR, name));
       const label = (state.slots[slot] && state.slots[slot].label) || '';
-      return { slot, name, label, size: st.size, version: Math.round(st.mtimeMs) };
+      // uploadedAt: when it was imported from the control panel (file date for videos copied by hand)
+      const uploadedAt = (state.slots[slot] && state.slots[slot].uploadedAt) || Math.round(st.mtimeMs);
+      return { slot, name, label, size: st.size, version: Math.round(st.mtimeMs), uploadedAt };
     } catch { return null; }
   }).filter(Boolean);
 }
@@ -562,6 +564,18 @@ const server = http.createServer(async (req, res) => {
     return json(res, { ok: true });
   }
 
+  // Rename the title of a video (the file itself is untouched): { slot, label }
+  if (url.pathname === '/api/video-label' && req.method === 'POST') {
+    const b = await readBody(req);
+    const slot = Number(b.slot);
+    if (!SLOTS.includes(slot) || !listVideos().some((v) => v.slot === slot)) { res.writeHead(400); return res.end('no video in this slot'); }
+    const label = String(b.label || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+    state.slots[slot] = { ...(state.slots[slot] || {}), label };
+    saveState();
+    log(`Video ${slot} renamed: ${label || '(no title)'}`);
+    return json(res, { ok: true });
+  }
+
   // Replace the video of a slot: raw file body, ?slot=1..3&label=name.mp4
   if (url.pathname === '/api/upload' && req.method === 'POST') {
     const slot = Number(url.searchParams.get('slot'));
@@ -578,7 +592,7 @@ const server = http.createServer(async (req, res) => {
     out.on('finish', () => {
       fs.rename(tmp, path.join(VIDEO_DIR, name), (err) => {
         if (err) { fs.unlink(tmp, () => {}); res.writeHead(500); return res.end('cannot rename file'); }
-        state.slots[slot] = { label };
+        state.slots[slot] = { label, uploadedAt: Date.now() };
         saveState();
         durations.delete(name);   // affected screens reload and report the exact duration
         probeDuration(listVideos().find((v) => v.name === name));
