@@ -52,6 +52,13 @@ cat > "$PLIST" <<EOF
 EOF
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
+step "Desktop shortcut"
+cat > "$HOME/Desktop/SUUTOO Admin.webloc" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>URL</key><string>http://localhost:$PORT/admin</string></dict></plist>
+EOF
+
 sleep 3
 IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo '<ip>')"
 echo

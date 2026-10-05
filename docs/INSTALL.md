@@ -48,7 +48,7 @@ one-click installer below or the Raspberry Pi install for a real event.
 Turns a PC or Mac into the server (backup server): downloads the latest version from GitHub
 (no Git, no account: the repository must be **public**), a private copy of Node.js in `.node/`,
 starts the server at each login (restarted if it crashes), disables sleep and opens the
-firewall (Windows). Run it again at any time to **update**: it overwrites the code and restarts.
+firewall (Windows) and puts a **SUUTOO Admin** shortcut on the desktop (opens `/admin` in the default browser). Run it again at any time to **update**: it overwrites the code and restarts.
 Videos, `state.json` and logs are kept. Needs internet during the install only.
 
 - Windows: double-click `deploy/install-windows.bat`

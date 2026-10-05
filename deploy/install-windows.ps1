@@ -59,6 +59,10 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if ($isAdmin) { Invoke-Expression $rule }
 else { Start-Process powershell -Verb RunAs -Wait -ArgumentList "-NoProfile -Command `"$rule`"" }
 
+Step 'Desktop shortcut'
+$desktop = [Environment]::GetFolderPath('Desktop')
+Set-Content -Path (Join-Path $desktop 'SUUTOO Admin.url') -Value "[InternetShortcut]`r`nURL=http://localhost:$Port/admin" -Encoding ASCII
+
 Start-Sleep 3
 $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } | Select-Object -First 1).IPAddress
 Write-Host ''
