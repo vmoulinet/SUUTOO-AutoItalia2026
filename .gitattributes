@@ -2,3 +2,4 @@
 *.service text eol=lf
 tools/*.bat text eol=crlf
 tools/*.command text eol=lf
+*.command text eol=lf

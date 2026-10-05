@@ -4,3 +4,4 @@ logs/
 state.json
 node_modules/
 *.pdf
+.node/
