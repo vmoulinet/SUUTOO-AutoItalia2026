@@ -5,31 +5,25 @@ param([string]$Dir = (Join-Path $env:USERPROFILE 'SUUTOO'))
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$Repo = 'https://github.com/vmoulinet/SUUTOO-AutoItalia2026.git'
+$Zip = 'https://codeload.github.com/vmoulinet/SUUTOO-AutoItalia2026/zip/refs/heads/main'
 $Task = 'SUUTOO server'
 $Port = 8080
 
 function Step($t) { Write-Host "==> $t" -ForegroundColor Cyan }
-
-Step 'Git'
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-  winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements
-  $env:Path += ";$env:ProgramFiles\Git\cmd"
-  if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git was installed but is not found yet: close this window and run the installer again.' }
-}
 
 Step 'Stopping the running server (if any)'
 Stop-ScheduledTask -TaskName $Task -ErrorAction SilentlyContinue
 Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$Dir\*" } | Stop-Process -Force
 
 Step "Latest version from GitHub -> $Dir"
-if (Test-Path "$Dir\.git") {
-  git -C $Dir pull --ff-only
-} else {
-  if (Test-Path $Dir) { throw "$Dir exists but is not a SUUTOO clone. Move it away or pass -Dir." }
-  git clone $Repo $Dir
-}
-if ($LASTEXITCODE -ne 0) { throw 'git failed (sign in to GitHub if asked; the repository is private).' }
+$tmp = Join-Path $env:TEMP 'suutoo-src'
+Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+Invoke-WebRequest $Zip -OutFile "$tmp.zip"
+Expand-Archive "$tmp.zip" -DestinationPath $tmp -Force
+New-Item -ItemType Directory -Force $Dir | Out-Null
+# Overwrites the code only: videos, state.json, logs and .node are not in the archive
+Copy-Item (Join-Path (Get-ChildItem $tmp | Select-Object -First 1).FullName '*') $Dir -Recurse -Force
+Remove-Item $tmp, "$tmp.zip" -Recurse -Force
 
 Step 'Node.js (private copy, does not touch any Node already installed)'
 $NodeDir = Join-Path $Dir '.node'

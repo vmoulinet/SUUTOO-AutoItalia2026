@@ -45,15 +45,17 @@ one-click installer below or the Raspberry Pi install for a real event.
 
 ### 1.1 One-click installer (Windows / Mac)
 
-Turns a PC or Mac into the server: installs Git, a private copy of Node.js, clones the latest
-version from GitHub into `~/SUUTOO`, starts the server at each login (restarted if it crashes),
-disables sleep and opens the firewall (Windows). Run it again at any time to **update**: it
-pulls the latest version and restarts. Videos, `state.json` and logs are kept.
+Turns a PC or Mac into the server (backup server): downloads the latest version from GitHub
+(no Git, no account: the repository must be **public**), a private copy of Node.js in `.node/`,
+starts the server at each login (restarted if it crashes), disables sleep and opens the
+firewall (Windows). Run it again at any time to **update**: it overwrites the code and restarts.
+Videos, `state.json` and logs are kept. Needs internet during the install only.
 
 - Windows: double-click `deploy/install-windows.bat`
 - Mac: double-click `deploy/install-mac.command` (first time: right-click > Open)
+- Raspberry Pi (from a USB stick): `bash setup-pi.sh` (section 2.3 bis)
 
-The repository is private: sign in to GitHub when Git asks. **Only one server must be running
+**Only one server must be running
 per show**: screens talk to the one address they were opened with and there is no failover or
 priority between servers. Two servers would each fire the smoke relay. Stop the other one
 (`sudo systemctl stop suutoo` on the Pi, or run the Pi and the PC on different days/networks).
@@ -97,6 +99,17 @@ Check:
 systemctl status suutoo
 curl -s localhost:8080/api/time | head -c 200
 ```
+
+#### 2.3 bis One-shot setup from a USB stick
+
+Copy `deploy/setup-pi.sh` to a stick, plug it in the Pi, and run it as the normal user:
+
+```bash
+bash /media/$USER/<stick>/setup-pi.sh        # --no-kiosk, --no-tailscale, --claude to adjust
+```
+
+It clones the repository, then runs `install-pi.sh --tailscale` and `install-kiosk.sh`
+(service, watchdog, SSH, Tailscale login link, kiosk). Run it again to update.
 
 ### 2.4 Kiosk mode (control panel on the Pi's own screen)
 

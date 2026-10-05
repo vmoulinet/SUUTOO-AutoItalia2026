@@ -4,7 +4,7 @@
 # Double-click this file (first time: right-click > Open), or run: bash install-mac.command
 set -euo pipefail
 
-REPO="https://github.com/vmoulinet/SUUTOO-AutoItalia2026.git"
+TARBALL="https://codeload.github.com/vmoulinet/SUUTOO-AutoItalia2026/tar.gz/refs/heads/main"
 DIR="${SUUTOO_DIR:-$HOME/SUUTOO}"
 LABEL="com.suutoo.server"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
@@ -12,24 +12,13 @@ PORT=8080
 
 step() { printf '\033[36m==> %s\033[0m\n' "$1"; }
 
-step "Git"
-if ! xcode-select -p >/dev/null 2>&1; then
-  xcode-select --install || true
-  echo "Finish the Command Line Tools installation that just opened, then run this installer again."
-  exit 1
-fi
-
 step "Stopping the running server (if any)"
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 
 step "Latest version from GitHub -> $DIR"
-if [ -d "$DIR/.git" ]; then
-  git -C "$DIR" pull --ff-only
-elif [ -e "$DIR" ]; then
-  echo "$DIR exists but is not a SUUTOO clone. Move it away or set SUUTOO_DIR."; exit 1
-else
-  git clone "$REPO" "$DIR"
-fi
+mkdir -p "$DIR"
+# Overwrites the code only: videos, state.json, logs and .node are not in the archive
+curl -fsSL "$TARBALL" | tar -xz --strip-components=1 -C "$DIR"
 
 step "Node.js (private copy, does not touch any Node already installed)"
 NODE_DIR="$DIR/.node"
