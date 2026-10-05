@@ -116,6 +116,12 @@ bash /media/$USER/<stick>/setup-pi.sh        # --no-kiosk, --no-tailscale, --cla
 It clones the repository, then runs `install-pi.sh --tailscale` and `install-kiosk.sh`
 (service, watchdog, SSH, Tailscale login link, kiosk). Run it again to update.
 
+#### Removing it
+
+`bash deploy/uninstall-pi.sh` (also works from a USB stick) undoes the setup: services, sudoers rule,
+watchdog setting, kiosk autostart, desktop icon, screen blanking. It asks before removing Tailscale and
+the project folder (videos, settings, logs). Node.js, git and SSH are left in place.
+
 ### 2.4 Kiosk mode (control panel on the Pi's own screen)
 
 ```bash
