@@ -236,7 +236,7 @@ async function finishConversion(slot, name, tmp) {
   reports.delete(name);
   probeDuration(listVideos().find((v) => v.name === name));
   updateDuration();
-  log(`Video ${slot} converted`);
+  log(`Video ${slot} optimized`);
 }
 
 // Video of a screen: the one assigned to it, else the config default, else the first one.
@@ -600,13 +600,13 @@ const server = http.createServer(async (req, res) => {
     const tmp = path.join(VIDEO_DIR, `.convert-${slot}.tmp.mp4`);
     const err = converter.start({ slot, input, tmp, durationMs: durations.get(v.name) || mp4DurationMs(input), onDone: () => finishConversion(slot, v.name, tmp) });
     if (err) { res.writeHead(409); return res.end(err); }
-    log(`Video ${slot}: conversion started`);
+    log(`Video ${slot}: optimization started`);
     return json(res, { ok: true });
   }
   // Cancel a running conversion (or dismiss its error message): { slot }
   if (url.pathname === '/api/convert-cancel' && req.method === 'POST') {
     const slot = Number((await readBody(req)).slot);
-    if (converter.cancel(slot)) log(`Video ${slot}: conversion cancelled`);
+    if (converter.cancel(slot)) log(`Video ${slot}: optimization cancelled`);
     return json(res, { ok: true });
   }
 

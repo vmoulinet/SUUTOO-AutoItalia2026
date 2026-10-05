@@ -27,7 +27,7 @@ function statusFor(slot) {
 // onDone() is called when the converted file is ready in `tmp`: it must put it in place.
 function start({ slot, input, tmp, durationMs, onDone }) {
   if (!available()) return 'ffmpeg is not installed on the server';
-  if (busy()) return 'Another conversion is already running';
+  if (busy()) return 'Another optimization is already running';
   const seconds = durationMs ? durationMs / 1000 : 0;
   // Video bitrate that keeps the whole file under the size limit
   const videoK = seconds > 0

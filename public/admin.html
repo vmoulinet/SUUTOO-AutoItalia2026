@@ -46,6 +46,8 @@
   table { width: 100%; border-collapse: collapse; }
   td { padding: 6px 4px; border-bottom: 1px solid #2c2c2c; }
   td.r { text-align: right; white-space: nowrap; }
+  td.vbtns { width: 1%; white-space: nowrap; vertical-align: top; padding-left: 12px; }
+  td.vbtns button.side { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-width: 104px; margin: 0 0 6px; padding: 8px 12px; }
   progress { width: 100%; }
   #logs { max-height: 240px; overflow-y: auto; font: 12px ui-monospace, monospace; line-height: 1.6; }
   #logs .t { color: #777; margin-right: 8px; }
@@ -491,7 +493,7 @@ function renderPhones(list) {
 // ---------- Videos ----------
 const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
 // Import icon: a small cloud with an arrow going up
-const ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>';
+const ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>';
 const PENCIL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>';
 const vidLabel = (v) => `Video ${v.slot}` + (v.label ? ` – ${v.label}` : '');
 const uploadedText = (ms) => new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -507,8 +509,8 @@ function paintConvert() {
   }
 }
 async function convertStart(n) {
-  if (!confirm(`Convert video ${n}?\n\nThe converted file (H.264, 720×1280, 30 fps, under 140 MB) replaces the current one. It takes a few minutes. Screens using this video reload it when it is done.`)) return;
-  try { await api('/api/convert', { slot: n }); } catch (e) { alert(`Could not start the conversion: ${e.message}`); }
+  if (!confirm(`Optimize video ${n}?\n\nThe optimized file (H.264, 720×1280, 30 fps, under 140 MB) replaces the current one. It takes a few minutes. Screens using this video reload it when it is done.`)) return;
+  try { await api('/api/convert', { slot: n }); } catch (e) { alert(`Could not start the optimization: ${e.message}`); }
   refresh();
 }
 async function convertCancel(n) {
@@ -613,15 +615,17 @@ function renderVideos(force) {
       : cv && cv.state === 'running'
         ? `<div class="vconv"><div class="vbar"><div data-bar="${n}" style="width:${cv.percent}%"></div></div><span class="dim" data-pct="${n}">${convText(cv)}</span><button class="small" onclick="convertCancel(${n})">Cancel</button></div>`
       : cv && cv.state === 'error'
-        ? `<div class="vconv"><span class="bad">Conversion failed: ${esc(cv.error)}</span><button class="small" onclick="convertCancel(${n})">OK</button></div>`
-      : fixable && canConvert ? `<div class="vconv"><button class="small" onclick="convertStart(${n})">⚙ Convert</button></div>` : '';
+        ? `<div class="vconv"><span class="bad">Optimization failed: ${esc(cv.error)}</span><button class="small" onclick="convertCancel(${n})">OK</button></div>`
+      : '';
+    // Right column: two stacked buttons. Optimize only when the video needs it (and not while one is running).
+    const showOptimize = fixable && canConvert && !(cv && cv.state === 'running');
+    const buttons = `<button class="small side" title="Replace this video" onclick="pickVideo(${n})">${ICON} Upload</button>${showOptimize ? `<button class="small side" title="Convert it to the right format" onclick="convertStart(${n})">⚙ Optimize</button>` : ''}`;
     const check = !r ? '' : `<div class="vcheck">${
       r.issues.length ? r.issues.map((i) => `<div class="${i.level === 'error' ? 'bad' : 'warn'}">${i.level === 'error' ? '✗' : '⚠'} ${esc(i.msg)}</div>`).join('')
         : '<div class="ok">✓ Meets the specs</div>'}</div>`;
     return `<tr><td class="vth">${v ? thumbHtml(v) : ''}</td>
       <td>${title}${when}${stats}${check}${conv}</td>
-      <td class="r dim">${v ? mb(v.size) : ''}</td>
-      <td class="r"><button class="small" title="Import a video" onclick="pickVideo(${n})">${ICON}</button></td></tr>`;
+      <td class="vbtns">${buttons}</td></tr>`;
   }).join('');
 }
 
