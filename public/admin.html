@@ -18,7 +18,6 @@
   input[type=range] { padding: 0; width: 100%; accent-color: #4a9; }
   .card { background: #1a1a1a; border: 1px solid #2c2c2c; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
   .vconv { margin-top: 6px; font-size: 12px; max-width: 280px; }
-  .vbar { width: 100%; height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
   .vrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
   .vrow .nw { white-space: nowrap; font-variant-numeric: tabular-nums; }   /* the text never wraps: no jumping while the numbers change */
   .vrow button { flex: none; margin: 0; }
@@ -34,7 +33,10 @@
     #videos td.vbtns { grid-column: 2; display: flex; flex-direction: row; gap: 8px; width: auto; padding: 8px 0 0; }
     #videos td.vbtns button.side { flex: 1 1 0; width: auto; min-width: 0; margin: 0; padding: 8px 6px; }
   }
-  .vbar > div { height: 100%; background: #2a7; transition: width .4s linear; }
+  /* the Optimize button while it runs: its background is the progress bar */
+  td.vbtns button.pbtn { position: relative; overflow: hidden; }
+  .pbtn .pfill { position: absolute; left: 0; top: 0; bottom: 0; background: #2a7; opacity: .6; transition: width .4s linear; }
+  .pbtn .ptxt { position: relative; white-space: nowrap; font-variant-numeric: tabular-nums; }
   button.ghost { background: none; color: #888; padding: 2px 6px; margin: 0 0 0 4px; vertical-align: middle; }
   button.ghost:hover { color: #ddd; }
   input.rename { width: 14em; max-width: 60vw; padding: 3px 6px; }
@@ -514,7 +516,8 @@ const vidLabel = (v) => `Video ${v.slot}` + (v.label ? ` – ${v.label}` : '');
 const uploadedText = (ms) => new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 // Conversion on the server (ffmpeg): the progress bar is updated in place, not by redrawing the list
-const convText = (cv) => `${cv.percent}%${cv.etaSec != null ? ` · ~${cv.etaSec >= 60 ? Math.ceil(cv.etaSec / 60) + ' min' : cv.etaSec + ' s'} left` : ''}`;
+// The Optimize button itself is the progress bar: its background fills up and its text is the time left.
+const convText = (cv) => (cv.etaSec == null ? 'Optimizing…' : `~${cv.etaSec >= 60 ? Math.ceil(cv.etaSec / 60) + ' min' : Math.max(1, cv.etaSec) + ' s'} left`);
 function paintConvert() {
   for (const v of videos) {
     if (!v.convert || v.convert.state !== 'running') continue;
@@ -531,6 +534,9 @@ async function convertStart(n) {
 async function convertCancel(n) {
   try { await api('/api/convert-cancel', { slot: n }); } catch {}
   refresh();
+}
+function convertCancelAsk(n) {   // a click on the progress button
+  if (confirm(`Cancel the optimization of video ${n}? The current file is kept.`)) convertCancel(n);
 }
 
 // Rename the title of a video (inline: Enter saves, Escape cancels). The list is not redrawn while editing.
@@ -626,17 +632,19 @@ function renderVideos(force) {
     const stats = r && r.summary ? `<div class="dim vcheck">${esc(r.summary)}</div>` : '';   // right under the date
     const cv = v && v.convert;
     const fixable = !!(r && r.issues.some((i) => i.fix !== false));
+    // Only a failed optimization shows a message under the warnings; progress lives in the button
     const conv = !v ? ''
-      : cv && cv.state === 'running'
-        ? `<div class="vconv"><div class="vbar"><div data-bar="${n}" style="width:${cv.percent}%"></div></div><div class="vrow"><span class="dim nw" data-pct="${n}">${convText(cv)}</span><button class="small" onclick="convertCancel(${n})">Cancel</button></div></div>`
       : cv && cv.state === 'error'
         ? `<div class="vconv"><div class="vrow"><span class="bad">Optimization failed: ${esc(cv.error)}</span><button class="small" onclick="convertCancel(${n})">OK</button></div></div>`
       : '';
-    // Right column: two stacked buttons. Optimize only when the video needs it (and not while one is running).
-    // (it stays in place, greyed out, while it runs, so the column does not change size)
-    const showOptimize = fixable && canConvert;
+    // Right column: two stacked buttons. Optimize only when the video needs it. While it runs, the Optimize
+    // button turns into the progress bar (same size, so nothing moves) and a click on it cancels.
     const running = !!(cv && cv.state === 'running');
-    const buttons = `<button class="small side" title="Replace this video" onclick="pickVideo(${n})">${ICON} Upload</button>${showOptimize ? `<button class="small side" title="Convert it to the right format" onclick="convertStart(${n})"${running ? ' disabled' : ''}>⚙ Optimize</button>` : ''}`;
+    const showOptimize = (fixable && canConvert) || running;
+    const optimize = running
+      ? `<button class="small side pbtn" title="Click to cancel" onclick="convertCancelAsk(${n})"><span class="pfill" data-bar="${n}" style="width:${cv.percent}%"></span><span class="ptxt" data-pct="${n}">${convText(cv)}</span></button>`
+      : `<button class="small side" title="Convert it to the right format" onclick="convertStart(${n})">⚙ Optimize</button>`;
+    const buttons = `<button class="small side" title="Replace this video" onclick="pickVideo(${n})">${ICON} Upload</button>${showOptimize ? optimize : ''}`;
     const check = !r ? '' : `<div class="vcheck">${
       r.issues.length ? r.issues.map((i) => `<div class="${i.level === 'error' ? 'bad' : 'warn'}">${i.level === 'error' ? '✗' : '⚠'} ${esc(i.msg)}</div>`).join('')
         : '<div class="ok">✓ Meets the specs</div>'}</div>`;
