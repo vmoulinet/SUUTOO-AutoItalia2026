@@ -249,6 +249,8 @@ function videoFor(id) {
 
 const volumeFor = (id) => (state.phones[id] && state.phones[id].volume != null ? state.phones[id].volume : 100);
 
+const DURATION_TOLERANCE_MS = 50;   // differences below this are not a different duration
+
 // The cycle lasts as long as the longest video in use.
 function updateDuration() {
   if (fixedDurationMs) return;
@@ -259,7 +261,9 @@ function updateDuration() {
     const d = v && durations.get(v.name);
     if (d && (max === null || d > max)) max = d;
   }
-  if (max !== null && max !== durationMs) {
+  // A few ms of difference is the same cycle (two phone models read the same file 5 ms apart):
+  // restarting the timeline for that would put the screens in a restart loop.
+  if (max !== null && (durationMs === null || Math.abs(max - durationMs) > DURATION_TOLERANCE_MS)) {
     durationMs = max;
     log(`Cycle length: ${(durationMs / 1000).toFixed(3)} s`);
     restart();
@@ -416,7 +420,8 @@ const server = http.createServer(async (req, res) => {
       if (isNew) { log(`Screen connected: ${id}`); online.set(id, true); updateDuration(); }
       // Each screen reports the exact duration of its video (learned again after a server restart)
       const vn = url.searchParams.get('vn'), vd = Number(url.searchParams.get('vd'));
-      if (vn && vd > 0 && durations.get(vn) !== Math.round(vd)) {
+      const known = durations.get(vn);
+      if (vn && vd > 0 && (!known || Math.abs(known - Math.round(vd)) > DURATION_TOLERANCE_MS)) {
         const v = listVideos().find((x) => x.name === vn);
         durations.set(vn, Math.round(vd));
         if (v) { state.durations[vn] = { version: v.version, ms: Math.round(vd) }; saveState(); }
