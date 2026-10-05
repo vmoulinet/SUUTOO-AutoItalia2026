@@ -7,9 +7,12 @@ AAC audio, a keyframe every second, "faststart", and a size under 140 MB.
 The original file is never touched: the result is saved next to it as <name>-suutoo.mp4.
 
 WINDOWS
-  1. Unzip this folder.
-  2. Double-click convert-windows.bat, choose your video (or drop the video file on the .bat).
-  3. If Windows says "Windows protected your PC": More info > Run anyway.
+  1. BEFORE unzipping: right-click SUUTOO-converter.zip > Properties > tick "Unblock" > OK.
+     (Windows blocks files downloaded from another computer. With Smart App Control turned on
+     there is no "Run anyway" button, so this step is the way through.)
+     Already unzipped? Open PowerShell in that folder and run:  Get-ChildItem -Recurse | Unblock-File
+  2. Unzip this folder.
+  3. Double-click convert-windows.bat, choose your video (or drop the video file on the .bat).
 
 MAC
   1. Unzip this folder.
