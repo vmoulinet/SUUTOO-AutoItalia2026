@@ -51,6 +51,11 @@ starts the server at each login (restarted if it crashes), disables sleep and op
 firewall (Windows) and puts a **SUUTOO Admin** shortcut on the desktop (opens `/admin` in the default browser). Run it again at any time to **update**: it overwrites the code and restarts.
 Videos, `state.json` and logs are kept. Needs internet during the install only.
 
+Run the installer again on a machine where SUUTOO is already installed and it asks: **U**pdate, **R**emove or **Q**uit.
+Remove stops the server and undoes everything the installer set up (auto-start, firewall rule, desktop shortcut,
+sleep settings put back to their original values), then asks whether to delete the `SUUTOO` folder too (videos,
+settings, logs). The folder is kept by default.
+
 - Windows: double-click `deploy/install-windows.bat`
 - Mac: double-click `deploy/install-mac.command` (first time: right-click > Open)
 - Raspberry Pi (from a USB stick): `bash setup-pi.sh` (section 2.3 bis)

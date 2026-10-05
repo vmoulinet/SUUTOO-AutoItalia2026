@@ -1,5 +1,6 @@
-# Installs / updates the SUUTOO server on a Windows PC.
-# Safe to run again: each run pulls the latest version from GitHub and restarts the server.
+# Installs / updates / removes the SUUTOO server on a Windows PC.
+# Safe to run again: if SUUTOO is already installed it asks whether to update (pull the latest
+# version from GitHub and restart) or to remove everything it set up.
 # Use install-windows.bat (double-click), or: powershell -ExecutionPolicy Bypass -File install-windows.ps1
 param([string]$Dir = (Join-Path $env:USERPROFILE 'SUUTOO'))
 
@@ -10,10 +11,53 @@ $Task = 'SUUTOO server'
 $Port = 8080
 
 function Step($t) { Write-Host "==> $t" -ForegroundColor Cyan }
+$Backup = Join-Path $Dir '.power-backup.json'
+$IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+function RunAdmin($code) {
+  if ($IsAdmin) { Invoke-Expression $code }
+  else { Start-Process powershell -Verb RunAs -Wait -ArgumentList "-NoProfile -Command `"$code`"" }
+}
+function StopServer {
+  Stop-ScheduledTask -TaskName $Task -ErrorAction SilentlyContinue
+  Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$Dir\*" } | Stop-Process -Force
+}
+# Current plugged-in timeout (seconds) of a power setting, read from the language-independent hex values
+function AcTimeout($setting) {
+  $hex = [regex]::Matches((powercfg /q SCHEME_CURRENT SUB_SLEEP $setting | Out-String), '0x[0-9a-fA-F]{8}')
+  [Convert]::ToInt32($hex[$hex.Count - 2].Value, 16)
+}
+
+if ((Get-ScheduledTask -TaskName $Task -ErrorAction SilentlyContinue) -or (Test-Path (Join-Path $Dir '.node'))) {
+  Write-Host "SUUTOO is already installed in $Dir."
+  $choice = Read-Host '[U]pdate to the latest version, [R]emove everything the installer set up, or [Q]uit? (U/R/Q)'
+  if ($choice -match '^[Qq]') { return }
+  if ($choice -match '^[Rr]') {
+    Step 'Stopping the server and removing auto-start'
+    StopServer
+    Unregister-ScheduledTask -TaskName $Task -Confirm:$false -ErrorAction SilentlyContinue
+    Step 'Desktop shortcut'
+    Remove-Item (Join-Path ([Environment]::GetFolderPath('Desktop')) 'SUUTOO Admin.url') -ErrorAction SilentlyContinue
+    Step 'Firewall rule'
+    RunAdmin "Remove-NetFirewallRule -DisplayName 'SUUTOO' -ErrorAction SilentlyContinue"
+    Step 'Sleep settings back to what they were'
+    if (Test-Path $Backup) {
+      $b = Get-Content $Backup | ConvertFrom-Json
+      powercfg /change standby-timeout-ac ([int]($b.standby / 60))
+      powercfg /change hibernate-timeout-ac ([int]($b.hibernate / 60))
+    } else { Write-Host 'No backup found, sleep settings left as they are.' }
+    $del = Read-Host "Also delete the folder $Dir (videos, settings, logs and the private Node)? [y/N]"
+    if ($del -match '^[Yy]') {
+      Set-Location $env:USERPROFILE
+      Remove-Item $Dir -Recurse -Force -ErrorAction Continue
+    } else { Write-Host "Folder kept: $Dir" }
+    Write-Host 'SUUTOO removed.' -ForegroundColor Green
+    return
+  }
+}
+
 
 Step 'Stopping the running server (if any)'
-Stop-ScheduledTask -TaskName $Task -ErrorAction SilentlyContinue
-Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$Dir\*" } | Stop-Process -Force
+StopServer
 
 Step "Latest version from GitHub -> $Dir"
 $tmp = Join-Path $env:TEMP 'suutoo-src'
@@ -50,14 +94,16 @@ Register-ScheduledTask -TaskName $Task -Action $action -Trigger $trigger -Settin
 Start-ScheduledTask -TaskName $Task
 
 Step 'Never go to sleep while plugged in'
+# Remember the original values (first install only) so that Remove can put them back
+if (-not (Test-Path $Backup)) {
+  @{ standby = (AcTimeout 'STANDBYIDLE'); hibernate = (AcTimeout 'HIBERNATEIDLE') } | ConvertTo-Json | Set-Content $Backup
+}
 powercfg /change standby-timeout-ac 0
 powercfg /change hibernate-timeout-ac 0
 
 Step "Firewall (port $Port, private networks)"
 $rule = "New-NetFirewallRule -DisplayName 'SUUTOO' -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -Profile Private -ErrorAction SilentlyContinue | Out-Null; Set-NetFirewallRule -DisplayName 'SUUTOO' -Enabled True"
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if ($isAdmin) { Invoke-Expression $rule }
-else { Start-Process powershell -Verb RunAs -Wait -ArgumentList "-NoProfile -Command `"$rule`"" }
+RunAdmin $rule
 
 Step 'Desktop shortcut'
 $desktop = [Environment]::GetFolderPath('Desktop')
@@ -68,4 +114,4 @@ $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notli
 Write-Host ''
 Write-Host 'Done. The server starts by itself at each login (set Windows to sign in automatically for an unattended machine).' -ForegroundColor Green
 Write-Host "Admin panel: http://${ip}:$Port/admin"
-Write-Host 'To update later: run this installer again.'
+Write-Host 'To update or remove SUUTOO later: run this installer again.'

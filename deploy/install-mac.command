@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Installs / updates the SUUTOO server on a Mac.
-# Safe to run again: each run pulls the latest version from GitHub and restarts the server.
+# Installs / updates / removes the SUUTOO server on a Mac.
+# Safe to run again: if SUUTOO is already installed it asks whether to update (pull the latest
+# version from GitHub and restart) or to remove everything it set up.
 # Double-click this file (first time: right-click > Open), or run: bash install-mac.command
 set -euo pipefail
 
@@ -11,6 +12,46 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 PORT=8080
 
 step() { printf '\033[36m==> %s\033[0m\n' "$1"; }
+
+if [ -f "$PLIST" ] || [ -d "$DIR/.node" ]; then
+  echo "SUUTOO is already installed in $DIR."
+  read -r -p "[U]pdate to the latest version, [R]emove everything the installer set up, or [Q]uit? (U/R/Q) " CHOICE
+  case "$CHOICE" in
+    [Qq]*) exit 0 ;;
+    [Rr]*)
+      step "Stopping the server and removing auto-start"
+      launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+      rm -f "$PLIST" "$HOME/Desktop/SUUTOO Admin.webloc"
+      read -r -p "Also delete the folder $DIR (videos, settings, logs and the private Node)? [y/N] " DEL
+      case "$DEL" in
+        [Yy]*) cd "$HOME" && rm -rf "$DIR" ;;
+        *) echo "Folder kept: $DIR" ;;
+      esac
+      printf '[32mSUUTOO removed.[0m
+'
+      exit 0 ;;
+  esac
+fi
+
+if [ -f "$PLIST" ] || [ -d "$DIR/.node" ]; then
+  echo "SUUTOO is already installed in $DIR."
+  read -r -p "[U]pdate to the latest version, [R]emove everything the installer set up, or [Q]uit? (U/R/Q) " CHOICE
+  case "$CHOICE" in
+    [Qq]*) exit 0 ;;
+    [Rr]*)
+      step "Stopping the server and removing auto-start"
+      launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+      rm -f "$PLIST" "$HOME/Desktop/SUUTOO Admin.webloc"
+      read -r -p "Also delete the folder $DIR (videos, settings, logs and the private Node)? [y/N] " DEL
+      case "$DEL" in
+        [Yy]*) cd "$HOME" && rm -rf "$DIR" ;;
+        *) echo "Folder kept: $DIR" ;;
+      esac
+      printf '[32mSUUTOO removed.[0m
+'
+      exit 0 ;;
+  esac
+fi
 
 step "Stopping the running server (if any)"
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
@@ -65,4 +106,4 @@ echo
 printf '\033[32mDone. The server starts by itself at each login (enable automatic login for an unattended Mac).\033[0m\n'
 echo "If macOS asks to allow incoming connections for node, click Allow."
 echo "Admin panel: http://$IP:$PORT/admin"
-echo "To update later: run this installer again."
+echo "To update or remove SUUTOO later: run this installer again."
