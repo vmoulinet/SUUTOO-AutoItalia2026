@@ -37,7 +37,7 @@ fires the smoke itself: no phone needs to "command" the machine.
      the video as the phone (muted, downscaled by the browser).
    - Per screen: drift and network rtt.
    - **Automation**: weekly schedule (Monday to Sunday, several time windows per day, all
-     times in **GMT**). With the schedule enabled, the system only runs inside the windows
+     times in the **Pi's local time**). With the schedule enabled, the system only runs inside the windows
      and is stopped outside them. "Resume video" outside a window runs it until the end of
      the next window. A window that starts while the system is stopped starts the video.
      The schedule is disabled by default.

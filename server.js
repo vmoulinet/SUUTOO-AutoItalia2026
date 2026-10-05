@@ -22,7 +22,7 @@ const STATE_FILE = path.join(ROOT, 'state.json');
 //   phones : screen id -> { name, video, volume (0-100) }
 //   slots  : slot number (1-3) -> { label } original file name
 //   durations : file name -> { version, ms }, so a restart doesn't forget the cycle length
-//   schedule : { enabled, days: { mon: [{ start: 'HH:MM', end: 'HH:MM' }], ... } } opening hours, in GMT/UTC
+//   schedule : { enabled, days: { mon: [{ start: 'HH:MM', end: 'HH:MM' }], ... } } opening hours, in the server's local time
 //   smokeEnabled : false = the smoke machine is never fired
 //   smokeDurationSec : how long the smoke runs (null = config smoke.pulseMs)
 //   smokeAtSec : moment of the smoke in the video, in seconds
@@ -122,7 +122,7 @@ probeMachine();
 
 // ---------- Schedule (Automation tab) ----------
 // With the schedule enabled, the system only runs inside the configured time windows.
-// All schedule times are GMT (UTC), whatever the timezone of the server.
+// All schedule times are in the server's local timezone (the Pi's clock, DST included).
 // Outside them it is "stopped", unless someone presses "Resume video": it then runs
 // until the end of the next window.
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -135,9 +135,9 @@ function scheduleWindows(now) {
   const out = [];
   for (let off = -1; off <= 8; off++) {
     const d = new Date(now);
-    d.setUTCDate(d.getUTCDate() + off);
-    const at = (min) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, min);
-    for (const r of state.schedule.days[DAY_KEYS[d.getUTCDay()]] || []) out.push({ start: at(minutesOf(r.start, false)), end: at(minutesOf(r.end, true)) });
+    d.setDate(d.getDate() + off);
+    const at = (min) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, min).getTime();
+    for (const r of state.schedule.days[DAY_KEYS[d.getDay()]] || []) out.push({ start: at(minutesOf(r.start, false)), end: at(minutesOf(r.end, true)) });
   }
   return out;
 }
@@ -393,7 +393,7 @@ const server = http.createServer(async (req, res) => {
       dmx: state.dmx || null,
       smokeAtSec: state.smokeAtSec, smokeEnabled: state.smokeEnabled, smokeDurationSec: smokeDurationMs() / 1000,
       smokeActive: Date.now() < smokeActiveUntil, urls: accessUrls(), wifi: (refreshWifiName(), wifiName),
-      schedule: { ...state.schedule, ...scheduleInfo(), override: scheduleOverride }, machine, logs: logs.slice(-150), videos: listVideos(), phones,
+      schedule: { ...state.schedule, ...scheduleInfo(), override: scheduleOverride, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, machine, logs: logs.slice(-150), videos: listVideos(), phones,
     });
   }
 

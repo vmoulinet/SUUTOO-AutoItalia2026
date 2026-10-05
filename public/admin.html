@@ -177,7 +177,7 @@
 <div class="card">
   <div class="row">
     <button id="schedToggle" class="small wide" style="flex:none" onclick="post('/api/schedule', { enabled: !schedule.enabled })"></button>
-    <span class="status dim" style="flex:none">All times are GMT · now <b id="gmtClock"></b></span>
+    <span class="status dim" style="flex:none">All times are server time (<span id="tzName"></span>) · now <b id="gmtClock"></b></span>
   </div>
   <div class="status" id="schedStatus" style="margin:6px 0 12px"></div>
   <div id="schedDays"></div>
@@ -266,12 +266,13 @@ function showTab(name) {
 document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
 showTab((() => { try { return localStorage.getItem('adminTab'); } catch { return null; } })() || 'screens');
 
-// ---------- Automation (schedule, GMT) ----------
+// ---------- Automation (schedule, server time) ----------
 const DAY_ORDER = [['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'], ['fri', 'Friday'], ['sat', 'Saturday'], ['sun', 'Sunday']];
 let schedule = { enabled: false, days: {} };
 let schedDirty = false;   // local edits not accepted by the server yet (e.g. end before start)
-const gmt = (ts, opts) => new Date(ts).toLocaleString('en-GB', { timeZone: 'UTC', ...opts });
-const gmtWhen = (ts) => gmt(ts, { weekday: 'short', hour: '2-digit', minute: '2-digit' }) + ' GMT';
+let schedTz;   // timezone of the server (the Pi); undefined until the first status
+const gmt = (ts, opts) => new Date(ts).toLocaleString('en-GB', { timeZone: schedTz, ...opts });
+const gmtWhen = (ts) => gmt(ts, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 
 function renderSchedule() {
   $('schedDays').innerHTML = DAY_ORDER.map(([k, label]) => `<div class="day" data-day="${k}"><div class="dlabel">${label}</div><div class="ranges">${
@@ -615,6 +616,7 @@ async function refresh() {
       schedule.days = sc.days; renderSchedule();
     }
     schedule.enabled = sc.enabled;
+    schedTz = sc.tz; $('tzName').textContent = sc.tz || '';
     $('schedToggle').textContent = sc.enabled ? 'Disable schedule' : 'Enable schedule';
     $('schedToggle').style.background = sc.enabled ? '' : '#2a7';
     $('schedDays').classList.toggle('off', !sc.enabled);
