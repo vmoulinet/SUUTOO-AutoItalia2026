@@ -17,6 +17,9 @@
   input, select { font: inherit; background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 6px 8px; }
   input[type=range] { padding: 0; width: 100%; accent-color: #4a9; }
   .card { background: #1a1a1a; border: 1px solid #2c2c2c; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  td.vth { width: 56px; padding-right: 8px; vertical-align: top; }
+  .vthumb { display: block; width: 54px; height: 96px; object-fit: cover; border-radius: 4px; background: #000; }
+  .vthumb.ph { display: flex; align-items: center; justify-content: center; color: #666; border: 1px solid #333; box-sizing: border-box; }
   .vcheck { font-size: 12px; line-height: 1.5; margin-top: 4px; font-weight: normal; }
   .join { display: flex; align-items: center; gap: 12px; padding: 8px 12px; }
   #qr { flex: none; width: 76px; height: 76px; border-radius: 4px; overflow: hidden; background: #fff; }
@@ -366,6 +369,7 @@ for (const id of Object.values(DMX_FIELDS)) {
 // ---------- Join card: QR code + addresses ----------
 // The server reports its current addresses with every status; the QR code is redrawn whenever they change.
 let joinKey = '';
+let currentWifi = null;   // name of the Wi-Fi network the Pi is on, shown in the offline message of the screens
 function qrSvg(text) {
   const q = qrcode(0, 'M'); q.addData(text); q.make();
   const n = q.getModuleCount(), m = 3, size = n + 2 * m;
@@ -454,7 +458,7 @@ function renderPhones(list) {
     el.querySelector('.pv').classList.toggle('offline', !p.client);
 
     const c = p.client;
-    el.querySelector('.st').innerHTML = !c ? '<span class="bad">offline</span>' : (() => {
+    el.querySelector('.st').innerHTML = !c ? `<span class="bad">offline</span> · <span class="dim">check if the phone is connected to <b>${esc(currentWifi || 'the same network')}</b></span>` : (() => {
       const drift = Math.abs(c.driftMs), age = c.ageMs / 1000;
       const dc = drift < 20 ? 'ok' : drift < 50 ? 'warn' : 'bad';
       return `${c.loaded ? '<span class="ok">video ✓</span>' : '<span class="warn">video…</span>'} ·
@@ -472,6 +476,63 @@ function renderPhones(list) {
 const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
 const ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11M8 10l4 4 4-4M9 6H8a4 4 0 0 0-4 4v6a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-6a4 4 0 0 0-4-4h-1"/></svg>';
 const vidLabel = (v) => `Video ${v.slot}` + (v.label ? ` – ${v.label}` : '');
+
+// Thumbnails: one frame of each video, taken in this browser (the video is streamed, only the part
+// needed to show that frame is downloaded). Kept in localStorage per file version, so they come back instantly.
+const thumbs = new Map();   // "slot-1.mp4:<version>" -> data URL, '' = frame could not be read, null = being made
+const thumbQueue = [];
+let thumbBusy = false;
+const thumbKey = (v) => `${v.name}:${v.version}`;
+function thumbHtml(v) {
+  const u = thumbLoad(v);
+  return u ? `<img class="vthumb" src="${u}" alt="">` : `<div class="vthumb ph" title="${u === '' ? 'No preview available' : 'Making the preview…'}">${u === '' ? '–' : '…'}</div>`;
+}
+function thumbLoad(v) {
+  const k = thumbKey(v);
+  if (thumbs.has(k)) return thumbs.get(k);
+  try { const s = localStorage.getItem('thumb:' + k); if (s) { thumbs.set(k, s); return s; } } catch {}
+  thumbs.set(k, null);
+  thumbQueue.push(v);
+  thumbNext();
+  return null;
+}
+function thumbNext() {
+  if (thumbBusy || !thumbQueue.length) return;
+  thumbBusy = true;
+  const v = thumbQueue.shift(), k = thumbKey(v);
+  makeThumb(v).then((url) => {
+    thumbs.set(k, url);
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {   // forget the older versions of this video
+        const key = localStorage.key(i);
+        if (key && key.startsWith(`thumb:${v.name}:`) && key !== 'thumb:' + k) localStorage.removeItem(key);
+      }
+      if (url) localStorage.setItem('thumb:' + k, url);
+    } catch {}
+    renderVideos();
+  }).finally(() => { thumbBusy = false; thumbNext(); });
+}
+function makeThumb(v) {
+  return new Promise((resolve) => {
+    const el = document.createElement('video');
+    let done = false, timer;
+    const finish = (url) => { if (done) return; done = true; clearTimeout(timer); el.removeAttribute('src'); el.load(); resolve(url); };
+    timer = setTimeout(() => finish(''), 25000);
+    el.muted = true; el.preload = 'auto'; el.playsInline = true;
+    el.addEventListener('error', () => finish(''));
+    el.addEventListener('loadedmetadata', () => { el.currentTime = Math.min(2, (el.duration || 2) / 2); });   // a frame 2 s in, not the first (often black)
+    el.addEventListener('seeked', () => {
+      try {
+        const h = 240, w = Math.round((h * el.videoWidth) / el.videoHeight) || 135;
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        c.getContext('2d').drawImage(el, 0, 0, w, h);
+        finish(c.toDataURL('image/jpeg', 0.75));
+      } catch { finish(''); }
+    });
+    el.src = `/video/${encodeURIComponent(v.name)}?v=${v.version}`;
+  });
+}
+
 function renderVideos() {
   $('videos').innerHTML = [1, 2, 3].map((n) => {
     const v = videos.find((x) => x.slot === n);
@@ -479,7 +540,8 @@ function renderVideos() {
     const check = !r ? '' : `<div class="vcheck">${
       r.issues.length ? r.issues.map((i) => `<div class="${i.level === 'error' ? 'bad' : 'warn'}">${i.level === 'error' ? '✗' : '⚠'} ${esc(i.msg)}</div>`).join('')
         : '<div class="ok">✓ Meets the specs</div>'}${r.summary ? `<div class="dim">${esc(r.summary)}</div>` : ''}</div>`;
-    return `<tr><td>${v ? esc(vidLabel(v)) : `Video ${n} <span class="dim">(empty)</span>`}${check}</td>
+    return `<tr><td class="vth">${v ? thumbHtml(v) : ''}</td>
+      <td>${v ? esc(vidLabel(v)) : `Video ${n} <span class="dim">(empty)</span>`}${check}</td>
       <td class="r dim">${v ? mb(v.size) : ''}</td>
       <td class="r"><button class="small" title="Import a video" onclick="pickVideo(${n})">${ICON}</button></td></tr>`;
   }).join('');
@@ -646,6 +708,7 @@ async function refresh() {
     const changed = JSON.stringify(s.videos) !== JSON.stringify(videos);
     videos = s.videos;
     if (changed) renderVideos();
+    currentWifi = s.wifi;
     renderJoin(s.urls, s.wifi);
     renderPhones(s.phones);
   } catch {
